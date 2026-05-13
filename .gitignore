@@ -85,6 +85,7 @@ tauri.key.pub
 /target/
 src-tauri/target/
 .target-codex/
+.worktrees/
 
 workflow
 .fastembed_cache
