@@ -1,0 +1,222 @@
+---
+name: Build & push core image
+
+# Builds the openhuman-core Docker image and pushes it to GHCR on every push
+# to main that touches Rust source or the Dockerfile. This is the CI leg of
+# the Node B deploy pipeline; Komodo handles the actual container swap.
+#
+# REQUIRED secrets (build-and-push job — always runs):
+#   None beyond the automatic GITHUB_TOKEN.
+#
+# OPTIONAL secrets (deploy-node-b job — skipped until all four are set):
+#   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client for joining the homelab net
+#   TS_OAUTH_SECRET     — Tailscale OAuth secret (pair with the above)
+#   KOMODO_API_KEY      — Komodo API key  (Infisical apps: HOMELAB_KOMODO_API_KEY)
+#   KOMODO_API_SECRET   — Komodo API secret  (HOMELAB_KOMODO_API_SECRET)
+#
+# Tags pushed on every main build:
+#   ghcr.io/tinyhumansai/openhuman-core:<full-sha>   — immutable, used by Komodo
+#   ghcr.io/tinyhumansai/openhuman-core:<short-sha>  — 12-char convenience alias
+#   ghcr.io/tinyhumansai/openhuman-core:node-b       — mutable channel tag
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - src/**
+  workflow_dispatch:
+    inputs:
+      channel_tag:
+        description: "Mutable channel tag to push (default: node-b)"
+        required: false
+        default: node-b
+      skip_deploy:
+        description: "Build and push only — do not trigger Komodo deploy"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: tinyhumansai/openhuman-core
+
+jobs:
+  # ===========================================================================
+  # Build the Rust image on GitHub's runner — keeps Node B off the build path.
+  # ===========================================================================
+  build-and-push:
+    name: Build and push openhuman-core
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    outputs:
+      sha_tag: ${{ steps.tags.outputs.sha_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          submodules: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          CHANNEL: ${{ inputs.channel_tag || 'node-b' }}
+        run: |
+          set -euo pipefail
+          base="${REGISTRY}/${IMAGE_NAME}"
+          sha="${{ github.sha }}"
+          short="${sha:0:12}"
+          {
+            echo "sha_tag=${base}:${sha}"
+            echo "short_sha=${short}"
+            echo "tags<<EOF"
+            echo "${base}:${sha}"
+            echo "${base}:${short}"
+            echo "${base}:${CHANNEL}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=build-core-image
+          cache-to: type=gha,scope=build-core-image,mode=max
+
+      - name: Verify pushed image is pullable
+        run: |
+          set -euo pipefail
+          docker pull "${{ steps.tags.outputs.sha_tag }}"
+          docker image inspect "${{ steps.tags.outputs.sha_tag }}" >/dev/null
+          echo "Image verified: ${{ steps.tags.outputs.sha_tag }}"
+
+  # ===========================================================================
+  # Update OPENHUMAN_IMAGE_TAG in the Komodo stack and trigger a redeploy.
+  #
+  # Gated on four secrets that must all be configured as GitHub Actions repo
+  # secrets before this job will run.  Until then the build-and-push job above
+  # still runs on every qualifying push — the SHA-tagged image lands in GHCR
+  # ready for a manual first deploy.
+  #
+  # Manual first-deploy checklist (one-off, before wiring this job):
+  #   1. Create Komodo Stack resource named "openhuman-core" on Node B,
+  #      pointing at the ops repo path prod/openhuman-core/docker-compose.yml.
+  #   2. In Komodo stack environment set:
+  #        OPENHUMAN_IMAGE_TAG=<sha from build-and-push above>
+  #        OPENHUMAN_CORE_TOKEN=<openssl rand -hex 32>
+  #        BACKEND_URL=https://api.tinyhumans.ai
+  #        OPENHUMAN_APP_ENV=production
+  #   3. Click Deploy in the Komodo UI. Verify:
+  #        curl -fsS http://<node-b-ip>:7788/health
+  #        curl -fsS -H "Authorization: Bearer <token>" \
+  #          -d '{"jsonrpc":"2.0","id":1,"method":"openhuman.about_app_list","params":{}}' \
+  #          http://<node-b-ip>:7788/rpc
+  #   4. Add the four secrets listed above to GitHub Actions.  Subsequent
+  #      pushes to main will deploy automatically.
+  # ===========================================================================
+  deploy-node-b:
+    name: Deploy to Node B via Komodo
+    runs-on: ubuntu-22.04
+    needs: build-and-push
+    if: >-
+      ${{
+        github.ref == 'refs/heads/main'
+        && secrets.TS_OAUTH_CLIENT_ID != ''
+        && secrets.KOMODO_API_KEY != ''
+        && inputs.skip_deploy != true
+      }}
+
+    steps:
+      - name: Join Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Update OPENHUMAN_IMAGE_TAG in Komodo and redeploy
+        env:
+          SHA: ${{ github.sha }}
+          KOMODO_API_KEY: ${{ secrets.KOMODO_API_KEY }}
+          KOMODO_API_SECRET: ${{ secrets.KOMODO_API_SECRET }}
+          # Komodo core reachable via Tailscale after the join step above.
+          KOMODO_BASE_URL: http://100.92.54.45:3011
+          KOMODO_STACK: openhuman-core
+        run: |
+          set -euo pipefail
+
+          echo "[komodo] reading current stack config for ${KOMODO_STACK}"
+          STACK=$(curl -fsS -X POST "${KOMODO_BASE_URL}/read" \
+            -H "X-Api-Key: ${KOMODO_API_KEY}" \
+            -H "X-Api-Secret: ${KOMODO_API_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"GetStack\",\"params\":{\"stack\":\"${KOMODO_STACK}\"}}")
+
+          STACK_ID=$(echo "$STACK" | jq -r '.id')
+          if [ -z "$STACK_ID" ] || [ "$STACK_ID" = "null" ]; then
+            echo "[komodo] ERROR: could not resolve stack id — is '${KOMODO_STACK}' the correct name?"
+            echo "$STACK" | jq .
+            exit 1
+          fi
+
+          CURRENT_ENV=$(echo "$STACK" | jq -r '.config.environment // ""')
+
+          # Replace OPENHUMAN_IMAGE_TAG in place; add it if absent.
+          FILTERED=$(echo "$CURRENT_ENV" | grep -v '^OPENHUMAN_IMAGE_TAG=' || true)
+          if [ -n "$FILTERED" ]; then
+            UPDATED_ENV="${FILTERED}"$'\nOPENHUMAN_IMAGE_TAG='"${SHA}"
+          else
+            UPDATED_ENV="OPENHUMAN_IMAGE_TAG=${SHA}"
+          fi
+
+          echo "[komodo] updating stack environment (OPENHUMAN_IMAGE_TAG -> ${SHA:0:12})"
+          curl -fsS -X POST "${KOMODO_BASE_URL}/write" \
+            -H "X-Api-Key: ${KOMODO_API_KEY}" \
+            -H "X-Api-Secret: ${KOMODO_API_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg id  "$STACK_ID" \
+              --arg env "$UPDATED_ENV" \
+              '{"type":"UpdateStack","params":{"id":$id,"config":{"environment":$env}}}')"
+
+          echo "[komodo] triggering DeployStack for ${KOMODO_STACK}"
+          curl -fsS -X POST "${KOMODO_BASE_URL}/execute" \
+            -H "X-Api-Key: ${KOMODO_API_KEY}" \
+            -H "X-Api-Secret: ${KOMODO_API_SECRET}" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\":\"DeployStack\",\"params\":{\"stack\":\"${KOMODO_STACK}\"}}"
+
+          echo "[komodo] deploy triggered: ${KOMODO_STACK} @ ${SHA:0:12}"
