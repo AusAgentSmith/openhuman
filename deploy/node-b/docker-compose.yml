@@ -23,7 +23,7 @@
 
 services:
   openhuman-core:
-    image: ghcr.io/tinyhumansai/openhuman-core:${OPENHUMAN_IMAGE_TAG:-latest}
+    image: repo.indexarr.net/indexarr/openhuman-core:${OPENHUMAN_IMAGE_TAG:-latest}
     container_name: openhuman-core
     restart: unless-stopped
     # Bind to localhost only — Caddy or another proxy terminates TLS and
