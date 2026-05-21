@@ -110,11 +110,8 @@ pub trait LlmGraphExtractor: Send + Sync {
     /// Extract subject/predicate/object triples + standalone entities from
     /// `content`. `title` is provided so the prompt can disambiguate the
     /// document (e.g. headers in markdown / subject lines in email).
-    async fn extract_graph(
-        &self,
-        content: &str,
-        title: &str,
-    ) -> anyhow::Result<LlmGraphExtraction>;
+    async fn extract_graph(&self, content: &str, title: &str)
+        -> anyhow::Result<LlmGraphExtraction>;
 }
 
 /// Default [`LlmGraphExtractor`] backed by a memory-tree
@@ -385,7 +382,12 @@ struct LlmRawEntity {
 struct LlmRawRelation {
     #[serde(default, alias = "head")]
     subject: String,
-    #[serde(default, alias = "subjectType", alias = "head_type", alias = "headType")]
+    #[serde(
+        default,
+        alias = "subjectType",
+        alias = "head_type",
+        alias = "headType"
+    )]
     subject_type: String,
     #[serde(default, alias = "relation", alias = "rel")]
     predicate: String,

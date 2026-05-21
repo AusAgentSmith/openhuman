@@ -149,20 +149,17 @@ export default function TriggerToggles({
    *  trigger (e.g. GITHUB_COMMIT_EVENT needs owner + repo). Pre-fills
    *  any defaults from `defaultConfig` so users don't retype the
    *  common ones. */
-  const openConfigForm = useCallback(
-    (entry: ComposioAvailableTrigger) => {
-      const sig = triggerSignature(entry.slug, entry.scope);
-      const initial: Record<string, string> = {};
-      for (const key of entry.requiredConfigKeys ?? []) {
-        const existing = entry.defaultConfig?.[key];
-        initial[key] = typeof existing === 'string' ? existing : '';
-      }
-      setConfigFormFor(sig);
-      setConfigFormValues(initial);
-      setRowError(null);
-    },
-    []
-  );
+  const openConfigForm = useCallback((entry: ComposioAvailableTrigger) => {
+    const sig = triggerSignature(entry.slug, entry.scope);
+    const initial: Record<string, string> = {};
+    for (const key of entry.requiredConfigKeys ?? []) {
+      const existing = entry.defaultConfig?.[key];
+      initial[key] = typeof existing === 'string' ? existing : '';
+    }
+    setConfigFormFor(sig);
+    setConfigFormValues(initial);
+    setRowError(null);
+  }, []);
 
   const closeConfigForm = useCallback(() => {
     setConfigFormFor(null);
@@ -371,13 +368,12 @@ export default function TriggerToggles({
                         spellCheck={false}
                         value={configFormValues[key] ?? ''}
                         onChange={ev =>
-                          setConfigFormValues(prev => ({
-                            ...prev,
-                            [key]: ev.target.value,
-                          }))
+                          setConfigFormValues(prev => ({ ...prev, [key]: ev.target.value }))
                         }
                         className="flex-1 rounded border border-stone-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1 text-xs font-mono"
-                        placeholder={key === 'owner' ? 'jruokola' : key === 'repo' ? 'closedhuman' : ''}
+                        placeholder={
+                          key === 'owner' ? 'jruokola' : key === 'repo' ? 'closedhuman' : ''
+                        }
                       />
                     </div>
                   ))}

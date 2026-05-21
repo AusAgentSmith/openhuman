@@ -67,9 +67,7 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
   // `'kokoro'` calls a user-configured OpenAI-compatible TTS server
   // (kokoro-fastapi, mlx-audio, LM Studio audio mode). The three fields
   // below capture the endpoint, model, and default voice.
-  const [ttsProvider, setTtsProvider] = useState<
-    'cloud' | 'piper' | 'kokoro' | 'system' | ''
-  >('');
+  const [ttsProvider, setTtsProvider] = useState<'cloud' | 'piper' | 'kokoro' | 'system' | ''>('');
   const macOs = isMac();
   const [sttModel, setSttModel] = useState<string>('');
   const [ttsVoice, setTtsVoice] = useState<string>('');
@@ -558,9 +556,7 @@ const VoicePanel = ({ embedded = false }: VoicePanelProps = {}) => {
                   value={ttsProvider || 'cloud'}
                   disabled={isSavingProviders}
                   onChange={e =>
-                    onTtsProviderChange(
-                      e.target.value as 'cloud' | 'piper' | 'kokoro' | 'system'
-                    )
+                    onTtsProviderChange(e.target.value as 'cloud' | 'piper' | 'kokoro' | 'system')
                   }
                   className="w-full rounded-md border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-primary-400">
                   <option value="cloud">Cloud (ElevenLabs proxy)</option>

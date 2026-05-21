@@ -25,12 +25,11 @@
  * configured cloud or local LLM and the new summary nodes appear in
  * the graph after the worker drains.
  */
+import { openPath } from '@tauri-apps/plugin-opener';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useT } from '../../lib/i18n/I18nContext';
 import type { ToastNotification } from '../../types/intelligence';
-import { openPath } from '@tauri-apps/plugin-opener';
-
 import { openUrl } from '../../utils/openUrl';
 import {
   type GraphExportResponse,
@@ -88,19 +87,12 @@ const SYNCABLE_TOOLKITS: ReadonlySet<string> = new Set(['gmail']);
  * `open` per platform.
  */
 async function openVaultContentFolder(contentRootAbs: string): Promise<void> {
-  console.debug(
-    '[ui-flow][memory-workspace] open vault content folder path=%s',
-    contentRootAbs
-  );
+  console.debug('[ui-flow][memory-workspace] open vault content folder path=%s', contentRootAbs);
   // Open the folder in the OS file manager — always works.
   try {
     await openPath(contentRootAbs);
   } catch (err) {
-    console.error(
-      '[ui-flow][memory-workspace] openPath failed for %s',
-      contentRootAbs,
-      err
-    );
+    console.error('[ui-flow][memory-workspace] openPath failed for %s', contentRootAbs, err);
   }
   // Best-effort: also try the Obsidian deep link. If Obsidian has the
   // vault registered, this lights up the graph-view alongside Finder.
@@ -110,10 +102,7 @@ async function openVaultContentFolder(contentRootAbs: string): Promise<void> {
     const url = `obsidian://open?path=${encodeURIComponent(contentRootAbs)}`;
     await openUrl(url);
   } catch (err) {
-    console.debug(
-      '[ui-flow][memory-workspace] obsidian deep-link skipped (non-fatal): %o',
-      err
-    );
+    console.debug('[ui-flow][memory-workspace] obsidian deep-link skipped (non-fatal): %o', err);
   }
 }
 

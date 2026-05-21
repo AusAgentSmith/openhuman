@@ -155,11 +155,7 @@ describe('<TriggerToggles>', () => {
   it('submits the inline config form with the typed values and flips the toggle on', async () => {
     mockListAvailable.mockResolvedValue({
       triggers: [
-        {
-          slug: 'GITHUB_COMMIT_EVENT',
-          scope: 'static',
-          requiredConfigKeys: ['owner', 'repo'],
-        },
+        { slug: 'GITHUB_COMMIT_EVENT', scope: 'static', requiredConfigKeys: ['owner', 'repo'] },
       ],
     });
     mockListTriggers.mockResolvedValue({ triggers: [] });
@@ -198,19 +194,13 @@ describe('<TriggerToggles>', () => {
       expect(sw).toHaveAttribute('aria-checked', 'true');
     });
     // Form closes after successful submission.
-    expect(
-      screen.queryByTestId('trigger-config-form-GITHUB_COMMIT_EVENT')
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trigger-config-form-GITHUB_COMMIT_EVENT')).not.toBeInTheDocument();
   });
 
   it('rejects an empty required field with an inline error', async () => {
     mockListAvailable.mockResolvedValue({
       triggers: [
-        {
-          slug: 'GITHUB_COMMIT_EVENT',
-          scope: 'static',
-          requiredConfigKeys: ['owner', 'repo'],
-        },
+        { slug: 'GITHUB_COMMIT_EVENT', scope: 'static', requiredConfigKeys: ['owner', 'repo'] },
       ],
     });
     mockListTriggers.mockResolvedValue({ triggers: [] });

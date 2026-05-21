@@ -2298,9 +2298,7 @@ const CloudProviderEditor = ({
               }}
               disabled={!!initial}
               className="mt-1 w-full rounded-lg border border-stone-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm text-stone-900 dark:text-neutral-100 disabled:opacity-60 focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-200">
-              {(
-                ['openai', 'anthropic', 'openrouter', 'ollama', 'lmstudio', 'custom'] as const
-              )
+              {(['openai', 'anthropic', 'openrouter', 'ollama', 'lmstudio', 'custom'] as const)
                 .filter(s => s === slug || !existingSlugs.includes(s))
                 .map(s => (
                   <option key={s} value={s}>

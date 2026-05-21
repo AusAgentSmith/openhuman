@@ -171,11 +171,7 @@ describe('tauriCommands/vault', () => {
     // `vault_sync_status` once `status='completed'`.
     test('dispatches openhuman.vault_sync with vault_id and returns a job handle', async () => {
       mockCallCoreRpc.mockResolvedValue({
-        result: {
-          job_id: 'vsj_abc123',
-          vault_id: 'v-1',
-          status: 'queued',
-        },
+        result: { job_id: 'vsj_abc123', vault_id: 'v-1', status: 'queued' },
         logs: [],
       });
       const resp = await openhumanVaultSync('v-1');
@@ -191,9 +187,7 @@ describe('tauriCommands/vault', () => {
   describe('openhumanVaultSyncStatus', () => {
     test('throws when not running in Tauri', async () => {
       mockIsTauri.mockReturnValue(false);
-      await expect(openhumanVaultSyncStatus('vsj_abc123')).rejects.toThrow(
-        'Not running in Tauri'
-      );
+      await expect(openhumanVaultSyncStatus('vsj_abc123')).rejects.toThrow('Not running in Tauri');
     });
 
     test('dispatches openhuman.vault_sync_status and returns the live snapshot', async () => {

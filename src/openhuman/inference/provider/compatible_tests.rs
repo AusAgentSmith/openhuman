@@ -227,8 +227,8 @@ fn parse_chat_response_body_salvages_responses_api_shape() {
         "output_text": "Hello from LM Studio",
         "output": []
     }"#;
-    let parsed = parse_chat_response_body("lmstudio", body)
-        .expect("should salvage the responses-api shape");
+    let parsed =
+        parse_chat_response_body("lmstudio", body).expect("should salvage the responses-api shape");
     assert_eq!(parsed.choices.len(), 1);
     assert_eq!(
         parsed.choices[0].message.effective_content(),
@@ -255,7 +255,10 @@ fn parse_chat_response_body_salvages_output_array_responses_shape() {
     let parsed = parse_chat_response_body("lmstudio", body)
         .expect("should salvage the output[]-shaped responses payload");
     assert_eq!(parsed.choices.len(), 1);
-    assert_eq!(parsed.choices[0].message.effective_content(), "Salvaged text");
+    assert_eq!(
+        parsed.choices[0].message.effective_content(),
+        "Salvaged text"
+    );
 }
 
 #[test]

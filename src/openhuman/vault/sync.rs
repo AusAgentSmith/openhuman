@@ -366,10 +366,14 @@ pub async fn sync_vault_with_progress(
                 // for v1; a follow-up could prune them via a
                 // delete-by-prefix sweep keyed on
                 // `vault:{vault_id}:{rel_path}:`).
-                let tree_source_id =
-                    format!("vault:{}:{}:{}", vault.id, rel_path, &hash[..hash.len().min(12)]);
-                let modified_at = DateTime::<Utc>::from_timestamp_millis(mtime_ms)
-                    .unwrap_or_else(Utc::now);
+                let tree_source_id = format!(
+                    "vault:{}:{}:{}",
+                    vault.id,
+                    rel_path,
+                    &hash[..hash.len().min(12)]
+                );
+                let modified_at =
+                    DateTime::<Utc>::from_timestamp_millis(mtime_ms).unwrap_or_else(Utc::now);
                 let tree_doc = TreeDocumentInput {
                     provider: "vault".to_string(),
                     title: title.clone(),
@@ -420,10 +424,8 @@ pub async fn sync_vault_with_progress(
         // without waiting for the whole walk to finish. The last
         // error pushed onto `report.errors` (if any) is forwarded so
         // the UI can surface "failed: X" inline.
-        let processed = report.ingested
-            + report.unchanged
-            + report.failed
-            + report.skipped_unsupported;
+        let processed =
+            report.ingested + report.unchanged + report.failed + report.skipped_unsupported;
         let last_error = report.errors.last().cloned();
         on_progress(ProgressUpdate {
             processed,

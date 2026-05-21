@@ -190,56 +190,56 @@ pub fn register_agent_handlers() {
             // The detector still runs for every user-facing channel
             // (`chat`, `web`, `slack`, etc.) — see
             // `is_trusted_internal_dispatch` below for the exact gate.
-            let skip_prompt_guard = is_trusted_internal_dispatch(
-                channel_name.as_str(),
-                target_agent_id.as_deref(),
-            );
+            let skip_prompt_guard =
+                is_trusted_internal_dispatch(channel_name.as_str(), target_agent_id.as_deref());
             if !skip_prompt_guard {
-            if let Some(user_prompt) = history
-                .iter()
-                .rev()
-                .find(|msg| msg.role.eq_ignore_ascii_case("user"))
-                .map(|msg| msg.content.as_str())
-            {
-                let decision = enforce_prompt_input(
-                    user_prompt,
-                    PromptEnforcementContext {
-                        source: "agent.bus.run_turn",
-                        request_id: None,
-                        user_id: Some(channel_name.as_str()),
-                        session_id: target_agent_id.as_deref(),
-                    },
-                );
-                if !matches!(decision.action, PromptEnforcementAction::Allow) {
-                    tracing::warn!(
-                        channel = %channel_name,
-                        target_agent = target_agent_id.as_deref().unwrap_or("<unset>"),
-                        action = match decision.action {
-                            PromptEnforcementAction::Allow => "allow",
-                            PromptEnforcementAction::Blocked => "block",
-                            PromptEnforcementAction::ReviewBlocked => "review_blocked",
+                if let Some(user_prompt) = history
+                    .iter()
+                    .rev()
+                    .find(|msg| msg.role.eq_ignore_ascii_case("user"))
+                    .map(|msg| msg.content.as_str())
+                {
+                    let decision = enforce_prompt_input(
+                        user_prompt,
+                        PromptEnforcementContext {
+                            source: "agent.bus.run_turn",
+                            request_id: None,
+                            user_id: Some(channel_name.as_str()),
+                            session_id: target_agent_id.as_deref(),
                         },
-                        score = decision.score,
-                        reasons = %decision
-                            .reasons
-                            .iter()
-                            .map(|r| r.code.as_str())
-                            .collect::<Vec<_>>()
-                            .join(","),
-                        prompt_hash = %decision.prompt_hash,
-                        prompt_chars = decision.prompt_chars,
-                        "[agent::bus] prompt rejected before run_tool_call_loop"
                     );
-                    let msg = match decision.action {
-                        PromptEnforcementAction::Allow => "Message accepted.",
-                        PromptEnforcementAction::Blocked => "Prompt blocked by security policy.",
-                        PromptEnforcementAction::ReviewBlocked => {
-                            "Prompt flagged for security review and was not processed."
-                        }
-                    };
-                    return Err(msg.to_string());
+                    if !matches!(decision.action, PromptEnforcementAction::Allow) {
+                        tracing::warn!(
+                            channel = %channel_name,
+                            target_agent = target_agent_id.as_deref().unwrap_or("<unset>"),
+                            action = match decision.action {
+                                PromptEnforcementAction::Allow => "allow",
+                                PromptEnforcementAction::Blocked => "block",
+                                PromptEnforcementAction::ReviewBlocked => "review_blocked",
+                            },
+                            score = decision.score,
+                            reasons = %decision
+                                .reasons
+                                .iter()
+                                .map(|r| r.code.as_str())
+                                .collect::<Vec<_>>()
+                                .join(","),
+                            prompt_hash = %decision.prompt_hash,
+                            prompt_chars = decision.prompt_chars,
+                            "[agent::bus] prompt rejected before run_tool_call_loop"
+                        );
+                        let msg = match decision.action {
+                            PromptEnforcementAction::Allow => "Message accepted.",
+                            PromptEnforcementAction::Blocked => {
+                                "Prompt blocked by security policy."
+                            }
+                            PromptEnforcementAction::ReviewBlocked => {
+                                "Prompt flagged for security review and was not processed."
+                            }
+                        };
+                        return Err(msg.to_string());
+                    }
                 }
-            }
             } // end `if !skip_prompt_guard`
 
             // Resolve the target agent's declared sandbox mode so any
@@ -435,7 +435,10 @@ mod tests {
 
     #[test]
     fn triage_channel_is_trusted_internal() {
-        assert!(is_trusted_internal_dispatch("triage", Some("trigger_triage")));
+        assert!(is_trusted_internal_dispatch(
+            "triage",
+            Some("trigger_triage")
+        ));
         assert!(is_trusted_internal_dispatch("triage", None));
     }
 
@@ -443,8 +446,14 @@ mod tests {
     fn well_known_trigger_agents_are_trusted_regardless_of_channel() {
         // If a future dispatch path puts trigger_triage on a different
         // channel name, the agent-id gate still kicks in.
-        assert!(is_trusted_internal_dispatch("composio", Some("trigger_triage")));
-        assert!(is_trusted_internal_dispatch("composio", Some("trigger_reactor")));
+        assert!(is_trusted_internal_dispatch(
+            "composio",
+            Some("trigger_triage")
+        ));
+        assert!(is_trusted_internal_dispatch(
+            "composio",
+            Some("trigger_reactor")
+        ));
     }
 
     #[test]
@@ -452,16 +461,28 @@ mod tests {
         assert!(!is_trusted_internal_dispatch("chat", None));
         assert!(!is_trusted_internal_dispatch("web", None));
         assert!(!is_trusted_internal_dispatch("slack", Some("orchestrator")));
-        assert!(!is_trusted_internal_dispatch("telegram", Some("orchestrator")));
-        assert!(!is_trusted_internal_dispatch("discord", Some("orchestrator")));
-        assert!(!is_trusted_internal_dispatch("imessage", Some("orchestrator")));
+        assert!(!is_trusted_internal_dispatch(
+            "telegram",
+            Some("orchestrator")
+        ));
+        assert!(!is_trusted_internal_dispatch(
+            "discord",
+            Some("orchestrator")
+        ));
+        assert!(!is_trusted_internal_dispatch(
+            "imessage",
+            Some("orchestrator")
+        ));
     }
 
     #[test]
     fn channel_match_is_case_insensitive() {
         assert!(is_trusted_internal_dispatch("Triage", None));
         assert!(is_trusted_internal_dispatch("TRIAGE", None));
-        assert!(is_trusted_internal_dispatch("triage", Some("TRIGGER_TRIAGE")));
+        assert!(is_trusted_internal_dispatch(
+            "triage",
+            Some("TRIGGER_TRIAGE")
+        ));
     }
 
     #[test]
@@ -470,7 +491,10 @@ mod tests {
         // treated as user-facing. Better to false-positive a detector
         // run than to silently skip the detector on a path we forgot
         // to audit.
-        assert!(!is_trusted_internal_dispatch("custom-channel", Some("orchestrator")));
+        assert!(!is_trusted_internal_dispatch(
+            "custom-channel",
+            Some("orchestrator")
+        ));
     }
 
     /// Minimal `Provider` implementation used only to satisfy the

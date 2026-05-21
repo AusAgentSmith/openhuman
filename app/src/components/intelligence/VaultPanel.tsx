@@ -44,9 +44,7 @@ export function VaultPanel({ onToast }: VaultPanelProps) {
   const [newPath, setNewPath] = useState('');
   const [newExcludes, setNewExcludes] = useState('');
   /** Per-vault current job snapshot. `null` when no sync is in flight. */
-  const [syncJobs, setSyncJobs] = useState<Record<string, CoreVaultSyncJobSnapshot | null>>(
-    {}
-  );
+  const [syncJobs, setSyncJobs] = useState<Record<string, CoreVaultSyncJobSnapshot | null>>({});
   /**
    * Active poll timers, keyed by `job_id`. Held in a ref because we
    * never want a re-render just because we set/clear a timeout —

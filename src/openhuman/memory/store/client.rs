@@ -18,12 +18,12 @@ use crate::openhuman::memory::ingestion::{
     ChatBackedLlmGraphExtractor, IngestionJob, IngestionQueue, IngestionState, LlmGraphExtractor,
     MemoryIngestionConfig, MemoryIngestionRequest, MemoryIngestionResult,
 };
-use crate::openhuman::memory::tree::chat::{build_chat_provider_for_role, ChatProvider};
 use crate::openhuman::memory::store::factories::effective_embedding_settings;
 use crate::openhuman::memory::store::types::{
     NamespaceDocumentInput, NamespaceMemoryHit, NamespaceRetrievalContext,
 };
 use crate::openhuman::memory::store::unified::UnifiedMemory;
+use crate::openhuman::memory::tree::chat::{build_chat_provider_for_role, ChatProvider};
 
 /// Reference-counted handle to a `MemoryClient`.
 pub type MemoryClientRef = Arc<MemoryClient>;

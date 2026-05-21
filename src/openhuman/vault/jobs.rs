@@ -46,9 +46,7 @@ use crate::openhuman::config::Config;
 
 use super::store;
 use super::sync;
-use super::types::{
-    VaultSyncJobHandle, VaultSyncJobSnapshot, VaultSyncJobStatus, VaultSyncReport,
-};
+use super::types::{VaultSyncJobHandle, VaultSyncJobSnapshot, VaultSyncJobStatus, VaultSyncReport};
 
 /// Per-job mutable state. Held behind an `Arc<Mutex<_>>` so the
 /// worker task and the status RPC can both reach it cheaply.
@@ -177,7 +175,14 @@ pub async fn enqueue(config: &Config, vault_id: &str) -> Result<VaultSyncJobHand
     let job_id_for_task = job_id.clone();
     let vault_id_for_task = vault_id.clone();
     let handle = tokio::spawn(async move {
-        run_job(cfg_owned, vault_owned, job_id_for_task, vault_id_for_task, job_state).await;
+        run_job(
+            cfg_owned,
+            vault_owned,
+            job_id_for_task,
+            vault_id_for_task,
+            job_state,
+        )
+        .await;
     });
     {
         let mut handles = registry().handles.lock();

@@ -366,12 +366,9 @@ async fn llm_extraction_merges_into_namespace_graph() {
         result.extraction_backend
     );
     assert!(
-        result
-            .relations
-            .iter()
-            .any(|r| r.subject == "CAROL"
-                && r.predicate == "OWNS"
-                && r.object.contains("MEMORY_TREE REFACTOR")),
+        result.relations.iter().any(|r| r.subject == "CAROL"
+            && r.predicate == "OWNS"
+            && r.object.contains("MEMORY_TREE REFACTOR")),
         "expected the LLM-emitted (Carol, OWNS, memory_tree refactor) triple to land — got {:?}",
         result.relations
     );

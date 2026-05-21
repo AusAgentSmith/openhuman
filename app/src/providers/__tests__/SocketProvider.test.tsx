@@ -35,9 +35,7 @@ vi.mock('react-redux', async () => {
   };
 });
 
-vi.mock('../../store/socketSelectors', () => ({
-  selectSocketStatus: vi.fn(),
-}));
+vi.mock('../../store/socketSelectors', () => ({ selectSocketStatus: vi.fn() }));
 
 type SnapshotShape = { sessionToken: string | null };
 

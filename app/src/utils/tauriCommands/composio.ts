@@ -150,11 +150,9 @@ export async function openhumanComposioLocalWebhookTest(): Promise<
   if (!isTauri()) {
     throw new Error('Not running in Tauri');
   }
-  return await callCoreRpc<
-    CommandResponse<{ result: { ok: boolean; url: string; body: string } }>
-  >({
-    method: 'openhuman.composio_local_webhook_test',
-  });
+  return await callCoreRpc<CommandResponse<{ result: { ok: boolean; url: string; body: string } }>>(
+    { method: 'openhuman.composio_local_webhook_test' }
+  );
 }
 
 /// Persist the ngrok authtoken into the encrypted credential store.

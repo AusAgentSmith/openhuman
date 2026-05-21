@@ -14,9 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../../../../test/test-utils';
 import AboutPanel from '../AboutPanel';
 
-const hoisted = vi.hoisted(() => ({
-  mockOpenUrl: vi.fn(),
-}));
+const hoisted = vi.hoisted(() => ({ mockOpenUrl: vi.fn() }));
 
 const { mockOpenUrl } = hoisted;
 

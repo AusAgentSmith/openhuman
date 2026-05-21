@@ -303,24 +303,15 @@ describe('<VaultPanel />', () => {
   it('"Sync all" button enqueues one job per vault and polls each', async () => {
     mockList
       .mockResolvedValueOnce({
-        result: [
-          vault({ id: 'v-1', name: 'A' }),
-          vault({ id: 'v-2', name: 'B' }),
-        ],
+        result: [vault({ id: 'v-1', name: 'A' }), vault({ id: 'v-2', name: 'B' })],
         logs: [],
       })
       .mockResolvedValueOnce({
-        result: [
-          vault({ id: 'v-1', name: 'A' }),
-          vault({ id: 'v-2', name: 'B' }),
-        ],
+        result: [vault({ id: 'v-1', name: 'A' }), vault({ id: 'v-2', name: 'B' })],
         logs: [],
       })
       .mockResolvedValueOnce({
-        result: [
-          vault({ id: 'v-1', name: 'A' }),
-          vault({ id: 'v-2', name: 'B' }),
-        ],
+        result: [vault({ id: 'v-1', name: 'A' }), vault({ id: 'v-2', name: 'B' })],
         logs: [],
       });
     mockSyncAll.mockResolvedValueOnce({
@@ -352,10 +343,7 @@ describe('<VaultPanel />', () => {
     await waitFor(() => expect(mockSyncAll).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockSyncStatus.mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(onToast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'Sync all',
-        message: expect.stringContaining('Enqueued 2'),
-      })
+      expect.objectContaining({ title: 'Sync all', message: expect.stringContaining('Enqueued 2') })
     );
   });
 

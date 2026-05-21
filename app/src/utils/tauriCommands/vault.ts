@@ -182,9 +182,7 @@ export async function openhumanVaultSyncStatus(
  * handle per vault; per-vault coalesce still applies, so calling
  * twice returns the same handles for any already-active jobs.
  */
-export async function openhumanVaultSyncAll(): Promise<
-  CommandResponse<CoreVaultSyncJobHandle[]>
-> {
+export async function openhumanVaultSyncAll(): Promise<CommandResponse<CoreVaultSyncJobHandle[]>> {
   ensureTauri();
   return await callCoreRpc<CommandResponse<CoreVaultSyncJobHandle[]>>({
     method: 'openhuman.vault_sync_all',

@@ -153,11 +153,7 @@ const TriggersPanel = () => {
         await openhumanComposioSetNgrokAuthtoken(authtokenDraft.trim());
         setAuthtokenDraft('');
       }
-      await openhumanComposioSetWebhookConfig({
-        enabled,
-        port,
-        ngrok_domain: ngrokDomain.trim(),
-      });
+      await openhumanComposioSetWebhookConfig({ enabled, port, ngrok_domain: ngrokDomain.trim() });
       // Persisted; if enabled, ensure the receiver picks up the
       // new domain / port without requiring an app restart.
       if (enabled) {
@@ -259,10 +255,10 @@ const TriggersPanel = () => {
             Direct-mode webhook receiver
           </h3>
           <p className="mt-1 text-sm text-stone-600 dark:text-neutral-400">
-            Composio delivers trigger events to an HTTPS URL you control. OpenHuman embeds an
-            ngrok tunnel so a free, persistent <code>.ngrok-free.dev</code> domain forwards to a
-            local loopback listener that HMAC-verifies and dispatches events. No external
-            webhook server, no Composio backend session needed.
+            Composio delivers trigger events to an HTTPS URL you control. OpenHuman embeds an ngrok
+            tunnel so a free, persistent <code>.ngrok-free.dev</code> domain forwards to a local
+            loopback listener that HMAC-verifies and dispatches events. No external webhook server,
+            no Composio backend session needed.
           </p>
         </section>
 
@@ -300,11 +296,7 @@ const TriggersPanel = () => {
           </h4>
 
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={e => setEnabled(e.target.checked)}
-            />
+            <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
             <span>Enable local webhook receiver at app launch</span>
           </label>
 
@@ -326,8 +318,7 @@ const TriggersPanel = () => {
                 href="https://dashboard.ngrok.com/domains"
                 className="underline"
                 target="_blank"
-                rel="noreferrer"
-              >
+                rel="noreferrer">
                 dashboard.ngrok.com/domains
               </a>
               . The free tier gives you one persistent domain.
@@ -353,8 +344,7 @@ const TriggersPanel = () => {
                 href="https://dashboard.ngrok.com/get-started/your-authtoken"
                 className="underline"
                 target="_blank"
-                rel="noreferrer"
-              >
+                rel="noreferrer">
                 dashboard.ngrok.com/get-started/your-authtoken
               </a>
               . Encrypted at rest; never returned through any RPC.
@@ -364,8 +354,7 @@ const TriggersPanel = () => {
                   <button
                     type="button"
                     className="text-rose-600 hover:underline"
-                    onClick={handleClearAuthtoken}
-                  >
+                    onClick={handleClearAuthtoken}>
                     Clear stored authtoken
                   </button>
                 </>
@@ -400,8 +389,7 @@ const TriggersPanel = () => {
               type="button"
               onClick={handleSave}
               disabled={saveStatus === 'saving'}
-              className="rounded bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 text-sm disabled:opacity-50"
-            >
+              className="rounded bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 text-sm disabled:opacity-50">
               {saveStatus === 'saving' ? 'Saving…' : 'Save'}
             </button>
             <button
@@ -409,8 +397,7 @@ const TriggersPanel = () => {
               onClick={handleTest}
               disabled={testStatus === 'testing'}
               className="rounded border border-stone-300 dark:border-neutral-600 px-4 py-2 text-sm disabled:opacity-50"
-              title="Send a healthz probe through ngrok back to loopback. Backend reports if the tunnel is not ready."
-            >
+              title="Send a healthz probe through ngrok back to loopback. Backend reports if the tunnel is not ready.">
               {testStatus === 'testing' ? 'Testing…' : 'Test tunnel'}
             </button>
             {saveStatus === 'saved' && (
@@ -438,10 +425,10 @@ const TriggersPanel = () => {
 
         <section className="rounded-md border border-amber-200 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/40 p-4 text-sm text-amber-900 dark:text-amber-200">
           <p>
-            <strong>Quotas.</strong> The free ngrok tier allows 20 000 HTTP requests/month and
-            1 GB bandwidth/month — comfortably above what Composio webhooks consume for personal
-            use. Heavy multi-toolkit workloads may want a paid ngrok plan or a self-hosted
-            tunnel; this is a v1 limit, not a permanent constraint.
+            <strong>Quotas.</strong> The free ngrok tier allows 20 000 HTTP requests/month and 1 GB
+            bandwidth/month — comfortably above what Composio webhooks consume for personal use.
+            Heavy multi-toolkit workloads may want a paid ngrok plan or a self-hosted tunnel; this
+            is a v1 limit, not a permanent constraint.
           </p>
         </section>
       </div>
