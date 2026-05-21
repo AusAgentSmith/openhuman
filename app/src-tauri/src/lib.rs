@@ -1595,6 +1595,42 @@ fn warn_if_wsl_x11_desktop_launch() {}
 
 type CefCommandLineArg = (&'static str, Option<&'static str>);
 
+// On Linux/XWayland, CEF calls XConfigureWindow on a freshly-created window before XWayland has
+// registered the XID, producing a spurious BadWindow that the default Xlib handler turns into an
+// abort(). Install a permanent error handler that makes BadWindow non-fatal.
+// Must be called AFTER CefInitialize (which installs its own handler) so we override it.
+#[cfg(target_os = "linux")]
+fn install_x11_error_handler() {
+    use x11_dl::xlib;
+    use std::sync::LazyLock;
+
+    static X11: LazyLock<Option<xlib::Xlib>> = LazyLock::new(|| xlib::Xlib::open().ok());
+
+    unsafe extern "C" fn x11_non_fatal_handler(
+        _display: *mut xlib::Display,
+        event: *mut xlib::XErrorEvent,
+    ) -> i32 {
+        if !event.is_null() {
+            log::debug!(
+                "[cef-x11] non-fatal X error code={} xid={:#x} (XWayland timing workaround)",
+                (*event).error_code,
+                (*event).resourceid,
+            );
+        }
+        0
+    }
+
+    let Some(xlib) = X11.as_ref() else {
+        log::warn!("[cef-x11] could not load libX11 — skipping error handler installation");
+        return;
+    };
+
+    unsafe {
+        (xlib.XSetErrorHandler)(Some(x11_non_fatal_handler));
+    }
+    log::info!("[cef-x11] installed non-fatal X11 error handler (BadWindow suppression)");
+}
+
 fn append_platform_cef_gpu_workarounds(args: &mut Vec<CefCommandLineArg>, os: &str, arch: &str) {
     // Issue #1697: on Arch/Manjaro-family Linux systems, the AppImage can
     // abort during CEF GPU process startup when EGL context creation fails
@@ -2784,6 +2820,15 @@ pub fn run() {
         .run(move |app_handle, event| match event {
             RunEvent::Ready => {
                 log::info!("[app] RunEvent::Ready — GTK initialized, setting up tray");
+                // On Linux/XWayland, CEF immediately configures the browser window (XConfigureWindow)
+                // right after creation, but XWayland may not have registered the XID yet, producing
+                // a BadWindow error that the default Xlib handler turns into an abort(). Install a
+                // permanent suppressive handler here — AFTER CefInitialize so we override whatever
+                // CEF installed — that makes BadWindow errors non-fatal. Real X errors in CEF's own
+                // code surface through other means (failed operations, visible rendering issues).
+                #[cfg(target_os = "linux")]
+                install_x11_error_handler();
+
                 if let Err(err) = setup_tray(app_handle) {
                     log::warn!(
                     "[tray] failed to setup tray icon (non-fatal in headless environment): {err}"

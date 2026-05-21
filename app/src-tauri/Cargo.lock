@@ -52,6 +52,7 @@ dependencies = [
  "toml 0.8.2",
  "url",
  "windows-sys 0.59.0",
+ "x11-dl",
 ]
 
 [[package]]
