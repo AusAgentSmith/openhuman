@@ -5,6 +5,11 @@ review_pr
 sentry_bugs
 remove_dupe_nonsense_issues
 
+# Personal/self-hosted CI config (Woodpecker — not for upstream fork)
+.woodpecker.yml
+# Personal server deploy (private registry image — use deploy/self-hosted/ instead)
+deploy/node-b/
+
 # Diagnostic harness output (scripts/diagnose-cef-runtime.mjs)
 diagnosis-*.json
 

@@ -24,8 +24,7 @@
  <a href="https://discord.tinyhumans.ai/">Discord</a> •
  <a href="https://www.reddit.com/r/tinyhumansai/">Reddit</a> •
  <a href="https://x.com/intent/follow?screen_name=tinyhumansai">X/Twitter</a> •
- <a href="https://tinyhumans.gitbook.io/openhuman/">Docs</a> •
- <a href="https://x.com/intent/follow?screen_name=senamakel">Follow @senamakel (Creator)</a>
+ <a href="https://tinyhumans.gitbook.io/openhuman/">Docs</a>
 </p>
 
 <p align="center">
@@ -44,6 +43,62 @@
 </p>
 
 > **Early Beta**: Under active development. Expect rough edges.
+
+---
+
+## This Fork: Server + Client Topology
+
+> This is a community fork of [tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman) that extends the original desktop-only architecture into a **server + client model**, enabling shared deployments, remote access, and a mobile client that is currently under development.
+
+### What's different
+
+| | Upstream | This Fork |
+|---|---|---|
+| **Core deployment** | In-process inside the desktop app only | Headless server via Docker / VPS / cloud |
+| **Desktop client** | Connects to bundled in-process core | Connects to any `openhuman-core` instance |
+| **Mobile client** | — | Under development (iOS + Android) |
+| **Multi-user / shared** | Not supported | Supported via shared core server |
+
+### Architecture
+
+```mermaid
+graph TB
+    subgraph Server["Self-Hosted Server (Docker / VPS / Cloud)"]
+        Core["openhuman-core\n(Rust · JSON-RPC · :7788)"]
+    end
+
+    subgraph Clients
+        Desktop["Desktop App\n(Tauri + React)\nWindows · macOS · Linux"]
+        Mobile["Mobile App\n🚧 Under Development\niOS · Android"]
+        Web["Web Client\n(React — browser)"]
+    end
+
+    Backend["tinyhumans.ai\nBackend API"]
+
+    Desktop -- "HTTP JSON-RPC\n(bearer auth)" --> Core
+    Mobile -- "HTTP JSON-RPC\n(bearer auth)" --> Core
+    Web -- "HTTP JSON-RPC\n(bearer auth)" --> Core
+    Core --> Backend
+```
+
+### Quick-start (server)
+
+```bash
+# Generate a bearer token — paste this into the desktop/mobile login screen
+openssl rand -hex 32
+
+# Run the core server (Docker)
+docker run -d \
+  -p 127.0.0.1:7788:7788 \
+  -e OPENHUMAN_CORE_HOST=0.0.0.0 \
+  -e OPENHUMAN_CORE_TOKEN=<your-token> \
+  -v openhuman-workspace:/home/openhuman/.openhuman \
+  ghcr.io/tinyhumansai/openhuman-core:latest
+```
+
+See [`deploy/self-hosted/docker-compose.yml`](./deploy/self-hosted/docker-compose.yml) and [`gitbooks/features/cloud-deploy.md`](./gitbooks/features/cloud-deploy.md) for the full deployment reference.
+
+---
 
 To install or get started, either download from the website over at [tinyhumans.ai/openhuman](https://tinyhumans.ai/openhuman?utm_source=github&utm_medium=readme) or run
 

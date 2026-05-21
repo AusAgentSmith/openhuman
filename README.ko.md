@@ -24,8 +24,7 @@
  <a href="https://discord.tinyhumans.ai/">Discord</a> •
  <a href="https://www.reddit.com/r/tinyhumansai/">Reddit</a> •
  <a href="https://x.com/intent/follow?screen_name=tinyhumansai">X/Twitter</a> •
- <a href="https://tinyhumans.gitbook.io/openhuman/">문서</a> •
- <a href="https://x.com/intent/follow?screen_name=senamakel">@senamakel(제작자) 팔로우</a>
+ <a href="https://tinyhumans.gitbook.io/openhuman/">문서</a>
 </p>
 
 <p align="center">

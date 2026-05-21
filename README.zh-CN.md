@@ -28,8 +28,7 @@
  <a href="https://discord.tinyhumans.ai/">Discord</a> •
  <a href="https://www.reddit.com/r/tinyhumansai/">Reddit</a> •
  <a href="https://x.com/intent/follow?screen_name=tinyhumansai">X/Twitter</a> •
- <a href="https://tinyhumans.gitbook.io/openhuman/">文档</a> •
- <a href="https://x.com/intent/follow?screen_name=senamakel">关注 @senamakel（作者）</a>
+ <a href="https://tinyhumans.gitbook.io/openhuman/">文档</a>
 </p>
 
 <p align="center">

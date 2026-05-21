@@ -1,0 +1,48 @@
+# OpenHuman Core — self-hosted server stack
+#
+# Drop a .env file alongside this compose file (or export env vars) with:
+#
+#   OPENHUMAN_IMAGE_TAG   Git SHA to pin  (e.g. abc123def456...)
+#                         Set to 'latest' to always pull the newest image.
+#                         CI auto-updates this via build-core-image.yml.
+#
+#   OPENHUMAN_CORE_TOKEN  Bearer token for /rpc auth  (openssl rand -hex 32)
+#                         Clients (desktop, mobile, web) enter this on login.
+#
+#   BACKEND_URL           https://api.tinyhumans.ai   (or your staging URL)
+#
+#   OPENHUMAN_APP_ENV     production  (or staging)
+#
+# Rollback: change OPENHUMAN_IMAGE_TAG to a previous SHA and redeploy.
+
+services:
+  openhuman-core:
+    image: ghcr.io/tinyhumansai/openhuman-core:${OPENHUMAN_IMAGE_TAG:-latest}
+    container_name: openhuman-core
+    restart: unless-stopped
+    # Bind to localhost only — put a reverse proxy (Caddy, nginx, Traefik)
+    # in front to terminate TLS.  Do NOT expose 7788 on 0.0.0.0 in production.
+    ports:
+      - "127.0.0.1:7788:7788"
+    environment:
+      OPENHUMAN_CORE_HOST: 0.0.0.0
+      OPENHUMAN_CORE_PORT: "7788"
+      OPENHUMAN_WORKSPACE: /home/openhuman/.openhuman
+      OPENHUMAN_AUTO_UPDATE_RESTART_STRATEGY: supervisor
+      OPENHUMAN_AUTO_UPDATE_RPC_MUTATIONS_ENABLED: "false"
+      RUST_LOG: info
+      OPENHUMAN_CORE_TOKEN: ${OPENHUMAN_CORE_TOKEN}
+      BACKEND_URL: ${BACKEND_URL:-https://api.tinyhumans.ai}
+      OPENHUMAN_APP_ENV: ${OPENHUMAN_APP_ENV:-production}
+    volumes:
+      - openhuman-workspace:/home/openhuman/.openhuman
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7788/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  openhuman-workspace:
+    name: openhuman-workspace

@@ -2,22 +2,23 @@
 name: Build & push core image
 
 # Builds the openhuman-core Docker image and pushes it to GHCR on every push
-# to main that touches Rust source or the Dockerfile. This is the CI leg of
-# the Node B deploy pipeline; Komodo handles the actual container swap.
+# to main that touches Rust source or the Dockerfile.  Optionally triggers a
+# Komodo stack deploy on a self-hosted server via Tailscale.
 #
 # REQUIRED secrets (build-and-push job — always runs):
 #   None beyond the automatic GITHUB_TOKEN.
 #
-# OPTIONAL secrets (deploy-node-b job — skipped until all four are set):
-#   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client for joining the homelab net
+# OPTIONAL secrets (deploy-server job — skipped until all five are set):
+#   TS_OAUTH_CLIENT_ID  — Tailscale OAuth client for VPN access to your server
 #   TS_OAUTH_SECRET     — Tailscale OAuth secret (pair with the above)
-#   KOMODO_API_KEY      — Komodo API key  (Infisical apps: HOMELAB_KOMODO_API_KEY)
-#   KOMODO_API_SECRET   — Komodo API secret  (HOMELAB_KOMODO_API_SECRET)
+#   KOMODO_API_KEY      — Komodo API key for your self-hosted Komodo instance
+#   KOMODO_API_SECRET   — Komodo API secret
+#   KOMODO_BASE_URL     — Base URL of your Komodo instance (e.g. http://10.0.0.1:3011)
 #
 # Tags pushed on every main build:
-#   ghcr.io/tinyhumansai/openhuman-core:<full-sha>   — immutable, used by Komodo
+#   ghcr.io/tinyhumansai/openhuman-core:<full-sha>   — immutable pin used by Komodo
 #   ghcr.io/tinyhumansai/openhuman-core:<short-sha>  — 12-char convenience alias
-#   ghcr.io/tinyhumansai/openhuman-core:node-b       — mutable channel tag
+#   ghcr.io/tinyhumansai/openhuman-core:latest        — mutable latest tag
 
 on:
   push:
@@ -32,9 +33,9 @@ on:
   workflow_dispatch:
     inputs:
       channel_tag:
-        description: "Mutable channel tag to push (default: node-b)"
+        description: "Mutable channel tag to push (default: latest)"
         required: false
-        default: node-b
+        default: latest
       skip_deploy:
         description: "Build and push only — do not trigger Komodo deploy"
         required: false
@@ -55,7 +56,7 @@ env:
 
 jobs:
   # ===========================================================================
-  # Build the Rust image on GitHub's runner — keeps Node B off the build path.
+  # Build the Rust image on GitHub's runner — keeps your server off the build path.
   # ===========================================================================
   build-and-push:
     name: Build and push openhuman-core
@@ -86,7 +87,7 @@ jobs:
         env:
           REGISTRY: ${{ env.REGISTRY }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          CHANNEL: ${{ inputs.channel_tag || 'node-b' }}
+          CHANNEL: ${{ inputs.channel_tag || 'latest' }}
         run: |
           set -euo pipefail
           base="${REGISTRY}/${IMAGE_NAME}"
@@ -132,23 +133,23 @@ jobs:
   # ready for a manual first deploy.
   #
   # Manual first-deploy checklist (one-off, before wiring this job):
-  #   1. Create Komodo Stack resource named "openhuman-core" on Node B,
-  #      pointing at the ops repo path prod/openhuman-core/docker-compose.yml.
-  #   2. In Komodo stack environment set:
+  #   1. Create a Komodo Stack resource named "openhuman-core" pointing at
+  #      deploy/self-hosted/docker-compose.yml (or your ops repo copy).
+  #   2. In the Komodo stack environment set:
   #        OPENHUMAN_IMAGE_TAG=<sha from build-and-push above>
   #        OPENHUMAN_CORE_TOKEN=<openssl rand -hex 32>
   #        BACKEND_URL=https://api.tinyhumans.ai
   #        OPENHUMAN_APP_ENV=production
   #   3. Click Deploy in the Komodo UI. Verify:
-  #        curl -fsS http://<node-b-ip>:7788/health
+  #        curl -fsS http://<server-ip>:7788/health
   #        curl -fsS -H "Authorization: Bearer <token>" \
   #          -d '{"jsonrpc":"2.0","id":1,"method":"openhuman.about_app_list","params":{}}' \
-  #          http://<node-b-ip>:7788/rpc
-  #   4. Add the four secrets listed above to GitHub Actions.  Subsequent
+  #          http://<server-ip>:7788/rpc
+  #   4. Add the five secrets listed above to GitHub Actions.  Subsequent
   #      pushes to main will deploy automatically.
   # ===========================================================================
-  deploy-node-b:
-    name: Deploy to Node B via Komodo
+  deploy-server:
+    name: Deploy to self-hosted server via Komodo
     runs-on: ubuntu-22.04
     needs: build-and-push
     if: >-
@@ -173,7 +174,7 @@ jobs:
           KOMODO_API_KEY: ${{ secrets.KOMODO_API_KEY }}
           KOMODO_API_SECRET: ${{ secrets.KOMODO_API_SECRET }}
           # Komodo core reachable via Tailscale after the join step above.
-          KOMODO_BASE_URL: http://100.92.54.45:3011
+          KOMODO_BASE_URL: ${{ secrets.KOMODO_BASE_URL }}
           KOMODO_STACK: openhuman-core
         run: |
           set -euo pipefail

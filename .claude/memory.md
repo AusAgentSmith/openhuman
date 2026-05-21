@@ -189,15 +189,12 @@ Quick reference for anyone starting with Claude on this project. Updated by the 
 - **Kill stuck processes** — `lsof -i :7788` then `kill <PID>`. Useful when `dev:app` reports a stale listener and you want to force a fresh boot rather than relying on the handle's auto-recovery.
 - **Skills runtime removed** — the QuickJS / `rquickjs` runtime is gone; `src/openhuman/skills/` is metadata-only ("Legacy skill metadata helpers retained after QuickJS runtime removal"). Skill execution surfaces are being rebuilt; don't assume a `.skill` can run end-to-end without checking the current code.
 
-## Node B Komodo Deploy (prod-openhuman-core)
+## Self-Hosted Server Deploy
 
-- **Komodo stack**: `prod-openhuman-core` on Node B (server_id `69e429838259c3a0a7eccceb`, stack ID `6a051e89fe7a84bb7346a4e2`).
-- **Ops repo path**: `prod/openhuman-core/docker-compose.yml` in `indexarr/ops` on Forgejo.
-- **Image**: `ghcr.io/tinyhumansai/openhuman-core:${OPENHUMAN_IMAGE_TAG}` — GHCR registry account `AusAgentSmith` stored in Komodo (token updated 2026-05-14).
-- **Port**: `127.0.0.1:7788:7788` on Node B — localhost-only; needs Caddy proxy for external access.
-- **Auth token**: `OPENHUMAN_CORE_TOKEN` (32-byte hex) set only in Komodo stack environment — not in Infisical.
-- **Env**: `BACKEND_URL=https://api.tinyhumans.ai`, `OPENHUMAN_APP_ENV=production`. Volume: Docker named volume `openhuman-workspace` on Node B.
-- **CI file**: `.github/workflows/build-core-image.yml` committed locally (not yet pushed — AusAgentSmith is read-only on tinyhumansai/openhuman). `deploy/node-b/docker-compose.yml` is a reference copy only; real file is in ops repo.
-- **CI secrets needed** (4 GitHub Actions secrets required before `deploy-node-b` job activates): `TS_OAUTH_CLIENT_ID` + `TS_OAUTH_SECRET` (Tailscale OAuth, tag `tag:ci` — user must create in Tailscale admin); `KOMODO_API_KEY` + `KOMODO_API_SECRET` (from Infisical `apps` project as `HOMELAB_KOMODO_API_KEY` / `HOMELAB_KOMODO_API_SECRET`).
-- **Smoke test (2026-05-14)**: `/health` → `{"ok":true}`, `/rpc` without token → 401, `/rpc` with bearer token → 200. All passed.
-- **Remaining tasks**: push the 2 local commits to tinyhumansai/openhuman; create Tailscale OAuth client and add 4 secrets to GitHub Actions; optionally Caddy proxy on Node B.
+- **Image**: `ghcr.io/tinyhumansai/openhuman-core:${OPENHUMAN_IMAGE_TAG}` — built by `.github/workflows/build-core-image.yml` on every push to main.
+- **Compose reference**: `deploy/self-hosted/docker-compose.yml` — use this as the basis for any server deployment.
+- **Port**: `127.0.0.1:7788:7788` — localhost-only; put a reverse proxy (Caddy, nginx) in front for TLS.
+- **Auth token**: `OPENHUMAN_CORE_TOKEN` (32-byte hex, `openssl rand -hex 32`) — set in the server environment or `.env` file; clients enter it on the login screen.
+- **Env**: `BACKEND_URL=https://api.tinyhumans.ai`, `OPENHUMAN_APP_ENV=production`. Volume: Docker named volume `openhuman-workspace`.
+- **CI secrets needed** (5 GitHub Actions secrets for the optional auto-deploy job): `TS_OAUTH_CLIENT_ID` + `TS_OAUTH_SECRET` (Tailscale OAuth for VPN access); `KOMODO_API_KEY` + `KOMODO_API_SECRET` + `KOMODO_BASE_URL` (for Komodo-managed deploys).
+- **Smoke test**: `/health` → `{"ok":true}`, `/rpc` without token → 401, `/rpc` with bearer → 200.
