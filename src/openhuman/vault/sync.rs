@@ -2,13 +2,16 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::ops::{doc_delete, doc_ingest, DeleteDocParams, IngestDocParams};
+use crate::openhuman::memory::tree::canonicalize::document::DocumentInput as TreeDocumentInput;
+use crate::openhuman::memory::tree::ingest as tree_ingest;
 
 use super::store;
 use super::types::{Vault, VaultFile, VaultFileStatus, VaultSyncReport};
@@ -73,9 +76,58 @@ pub fn supported_extension(ext: &str) -> bool {
     )
 }
 
+/// Per-file progress update delivered to a `ProgressCallback`. Used by
+/// the async job worker to surface live state to
+/// `vault_sync_status` callers.
+#[derive(Debug, Clone)]
+pub struct ProgressUpdate {
+    /// Files processed so far across the whole walk (ingested +
+    /// unchanged + failed + skipped_unsupported).
+    pub processed: u64,
+    /// Total supported file count discovered by the directory walk's
+    /// pre-pass, when one is available. The current implementation
+    /// doesn't run a pre-pass to avoid double-traversal of large
+    /// vaults; left in the type so a future pre-pass can populate
+    /// it without an API break.
+    pub total: Option<u64>,
+    /// Relative path of the file just processed, useful for showing
+    /// "current file" in the UI. `None` only at the post-walk
+    /// deletion-pass step.
+    pub current_file: Option<String>,
+    /// Most recent error message, if the just-processed file failed
+    /// to ingest. The full error list lives on the report.
+    pub last_error: Option<String>,
+}
+
+/// Callback invoked by [`sync_vault_with_progress`] after each file
+/// in the walk. Shared via `Arc` so the worker task and the status
+/// RPC can both observe the same updates without coupling lifetimes.
+pub type ProgressCallback = Arc<dyn Fn(ProgressUpdate) + Send + Sync>;
+
+/// Construct a no-op [`ProgressCallback`]. Used by the legacy
+/// blocking `sync_vault` entry point that doesn't need per-file
+/// progress.
+pub fn noop_progress() -> ProgressCallback {
+    Arc::new(|_| {})
+}
+
 /// Walk `vault.root_path`, ingest new/changed files into memory, delete docs
 /// whose source files vanished, and record per-file state in the ledger.
+///
+/// Back-compat alias for callers that don't care about progress —
+/// delegates to [`sync_vault_with_progress`] with a noop callback.
 pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
+    sync_vault_with_progress(config, vault, noop_progress()).await
+}
+
+/// Same as [`sync_vault`] but invokes `on_progress` after each file's
+/// ledger upsert + tree-ingest fan-out. The async job worker uses
+/// this entry point to drive `vault_sync_status` snapshots.
+pub async fn sync_vault_with_progress(
+    config: &Config,
+    vault: &Vault,
+    on_progress: ProgressCallback,
+) -> VaultSyncReport {
     let started = Utc::now();
     let mut report = VaultSyncReport {
         vault_id: vault.id.clone(),
@@ -245,10 +297,14 @@ pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
             .and_then(|s| s.to_str())
             .unwrap_or(&rel_path)
             .to_string();
+        // Memory tree needs its own copy of the body. `doc_ingest` moves
+        // `content` into `IngestDocParams`; we clone here (vault files are
+        // capped at MAX_FILE_BYTES so the clone is bounded).
+        let tree_body = content.clone();
         let ingest_params = IngestDocParams {
             namespace: vault.namespace.clone(),
             key,
-            title,
+            title: title.clone(),
             content,
             source_type: "vault".to_string(),
             priority: "medium".to_string(),
@@ -272,7 +328,7 @@ pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
                     vault_id: vault.id.clone(),
                     rel_path: rel_path.clone(),
                     document_id,
-                    content_hash: hash,
+                    content_hash: hash.clone(),
                     mtime_ms,
                     bytes: metadata.len(),
                     ingested_at: Utc::now(),
@@ -288,6 +344,67 @@ pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
                 }
                 log::trace!("[vault] sync_vault: ingested path={rel_path}");
                 report.ingested += 1;
+
+                // Fan out to the memory-tree ingest path so the chunks
+                // become visible to the summariser / extractor workers.
+                // The main `doc_ingest` above writes to the
+                // `UnifiedMemory` namespace store (graph + vector
+                // chunks for `query_namespace` retrieval); the memory
+                // tree maintains its own `mem_tree_chunks` table that
+                // feeds the bucket-seal / summary cascade and the UI's
+                // tree visualisation. Without this fan-out the user
+                // saw "Cleared 0 tree row(s); requeued 0 chunk(s)" on
+                // reset because the tree's chunk table was empty
+                // despite the vault sync reporting hundreds of
+                // ingested files (#bug-report 2026-05-20).
+                //
+                // We use a hash-suffixed source_id so re-syncing a
+                // modified file produces a NEW tree-side ingest
+                // instead of being skipped by
+                // `tree::ingest::already_ingested`. Old chunks for
+                // the previous content stay in the tree (acceptable
+                // for v1; a follow-up could prune them via a
+                // delete-by-prefix sweep keyed on
+                // `vault:{vault_id}:{rel_path}:`).
+                let tree_source_id =
+                    format!("vault:{}:{}:{}", vault.id, rel_path, &hash[..hash.len().min(12)]);
+                let modified_at = DateTime::<Utc>::from_timestamp_millis(mtime_ms)
+                    .unwrap_or_else(Utc::now);
+                let tree_doc = TreeDocumentInput {
+                    provider: "vault".to_string(),
+                    title: title.clone(),
+                    body: tree_body,
+                    modified_at,
+                    source_ref: Some(format!("vault://{}/{}", vault.id, rel_path)),
+                };
+                match tree_ingest::ingest_document(
+                    config,
+                    &tree_source_id,
+                    "self",
+                    vec![format!("vault:{}", vault.id), format!("ext:{ext}")],
+                    tree_doc,
+                )
+                .await
+                {
+                    Ok(ingest_outcome) => {
+                        log::debug!(
+                            "[vault] sync_vault: tree ingest ok path={rel_path} \
+                             chunks_written={} chunks_dropped={} already={}",
+                            ingest_outcome.chunks_written,
+                            ingest_outcome.chunks_dropped,
+                            ingest_outcome.already_ingested,
+                        );
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "[vault] sync_vault: tree ingest failed (non-fatal) \
+                             path={rel_path} err={err:#}"
+                        );
+                        report
+                            .errors
+                            .push(format!("{rel_path}: tree ingest failed: {err:#}"));
+                    }
+                }
             }
             Err(err) => {
                 log::debug!("[vault] sync_vault: ingest failed path={rel_path} err={err}");
@@ -297,6 +414,23 @@ pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
                     .push(format!("{rel_path}: ingest failed: {err}"));
             }
         }
+
+        // Emit a per-file progress update so async-job watchers
+        // (`vault_sync_status`) see the running counters move
+        // without waiting for the whole walk to finish. The last
+        // error pushed onto `report.errors` (if any) is forwarded so
+        // the UI can surface "failed: X" inline.
+        let processed = report.ingested
+            + report.unchanged
+            + report.failed
+            + report.skipped_unsupported;
+        let last_error = report.errors.last().cloned();
+        on_progress(ProgressUpdate {
+            processed,
+            total: None,
+            current_file: Some(rel_path.clone()),
+            last_error,
+        });
     }
 
     // Anything in ledger we didn't see this pass is gone — delete it.
@@ -341,6 +475,16 @@ pub async fn sync_vault(config: &Config, vault: &Vault) -> VaultSyncReport {
         report.skipped_unsupported,
         report.duration_ms,
     );
+
+    // Final progress flush so the UI clears the "current file"
+    // affordance even if the walk produced zero per-file callbacks
+    // (empty vault).
+    on_progress(ProgressUpdate {
+        processed: report.scanned,
+        total: Some(report.scanned),
+        current_file: None,
+        last_error: None,
+    });
     report
 }
 

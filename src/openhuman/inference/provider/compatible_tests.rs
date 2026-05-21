@@ -215,6 +215,69 @@ fn parse_chat_response_body_reports_sanitized_snippet() {
 }
 
 #[test]
+fn parse_chat_response_body_salvages_responses_api_shape() {
+    // LM Studio (with certain reasoning models) returns the
+    // `/v1/responses` envelope shape even on the `/v1/chat/completions`
+    // endpoint — body lacks `choices` but has `output_text`. The
+    // chat-completions parser should salvage this instead of erroring
+    // with "missing field `choices`".
+    let body = r#"{
+        "id": "resp-1",
+        "object": "response",
+        "output_text": "Hello from LM Studio",
+        "output": []
+    }"#;
+    let parsed = parse_chat_response_body("lmstudio", body)
+        .expect("should salvage the responses-api shape");
+    assert_eq!(parsed.choices.len(), 1);
+    assert_eq!(
+        parsed.choices[0].message.effective_content(),
+        "Hello from LM Studio"
+    );
+}
+
+#[test]
+fn parse_chat_response_body_salvages_output_array_responses_shape() {
+    // Alternate `/v1/responses` shape — text lives in
+    // `output[].content[].text` (the streaming-style envelope) rather
+    // than `output_text`. Salvage path must also handle this.
+    let body = r#"{
+        "id": "resp-2",
+        "output_text": null,
+        "output": [
+            {
+                "content": [
+                    {"type": "output_text", "text": "Salvaged text"}
+                ]
+            }
+        ]
+    }"#;
+    let parsed = parse_chat_response_body("lmstudio", body)
+        .expect("should salvage the output[]-shaped responses payload");
+    assert_eq!(parsed.choices.len(), 1);
+    assert_eq!(parsed.choices[0].message.effective_content(), "Salvaged text");
+}
+
+#[test]
+fn parse_chat_response_body_missing_choices_includes_actionable_hint() {
+    // When the body is neither a chat-completions nor a responses-api
+    // shape, the error must mention `choices` and include the LM Studio
+    // hint so the operator knows what to check.
+    let body = r#"{"id":"x","object":"chat.completion"}"#;
+    let err =
+        parse_chat_response_body("lmstudio", body).expect_err("unrecognised shape should error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("missing field `choices`"),
+        "expected the raw serde 'missing field choices' error to surface, got: {msg}"
+    );
+    assert!(
+        msg.contains("LM Studio") || msg.contains("reasoning models"),
+        "expected the actionable hint about LM Studio / reasoning models, got: {msg}"
+    );
+}
+
+#[test]
 fn parse_responses_response_body_reports_sanitized_snippet() {
     let body = r#"{"output_text":123,"api_key":"sk-another-secret"}"#;
     let err = parse_responses_response_body("custom", body).expect_err("payload should fail");
@@ -502,18 +565,46 @@ fn responses_url_non_v1_api_path_uses_raw_suffix() {
 }
 
 #[test]
-fn chat_completions_url_without_v1() {
-    // Provider configured without /v1 in base URL
+fn chat_completions_url_host_only_gets_v1_inserted() {
+    // Provider configured with bare host (no path) — the OpenAI
+    // `/v1` convention is the universal one. LM Studio, vLLM,
+    // llamacpp-server, and Ollama's `/v1/*` shim all reject
+    // `POST /chat/completions` with no `/v1` prefix. Symmetric
+    // with the `responses_url` behaviour at the path level.
     let p = make_provider("test", "https://api.example.com", None);
     assert_eq!(
         p.chat_completions_url(),
-        "https://api.example.com/chat/completions"
+        "https://api.example.com/v1/chat/completions"
+    );
+}
+
+#[test]
+fn chat_completions_url_lmstudio_loopback_gets_v1_inserted() {
+    // Regression for the LM Studio failure on the local-OAuth fork:
+    // base URL `http://localhost:1234` produced `/chat/completions`
+    // which LM Studio rejects with:
+    // `{"error":"Unexpected endpoint or method. (POST /chat/completions)"}`.
+    let p = make_provider("lmstudio", "http://localhost:1234", None);
+    assert_eq!(
+        p.chat_completions_url(),
+        "http://localhost:1234/v1/chat/completions"
+    );
+}
+
+#[test]
+fn chat_completions_url_host_with_trailing_slash_gets_v1_inserted() {
+    // Trailing slash on a host-only URL is treated as no path —
+    // same `/v1/chat/completions` result.
+    let p = make_provider("lmstudio", "http://localhost:1234/", None);
+    assert_eq!(
+        p.chat_completions_url(),
+        "http://localhost:1234/v1/chat/completions"
     );
 }
 
 #[test]
 fn chat_completions_url_base_with_v1() {
-    // Provider configured with /v1 in base URL
+    // Provider configured with /v1 in base URL — no doubling.
     let p = make_provider("test", "https://api.example.com/v1", None);
     assert_eq!(
         p.chat_completions_url(),

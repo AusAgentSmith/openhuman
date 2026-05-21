@@ -53,30 +53,49 @@ fn anthropic_entry(id: &str, slug: &str) -> CloudProviderCreds {
 }
 
 #[test]
-fn openhuman_literal() {
+fn openhuman_literal_errors_in_local_fork() {
+    // In the local-OAuth fork the OpenHuman backend is gone; the
+    // sentinel must hard-error with a pointer at Settings → AI so
+    // the user knows where to configure their own provider.
     let config = Config::default();
-    let (_, model) = create_chat_provider_from_string("reasoning", "openhuman", &config)
-        .expect("openhuman literal must build");
-    assert!(!model.is_empty(), "model must not be empty");
-}
-
-#[test]
-fn cloud_no_providers_falls_back_to_openhuman() {
-    let config = Config::default();
-    let result = create_chat_provider_from_string("reasoning", "cloud", &config);
+    let err = create_chat_provider_from_string("reasoning", "openhuman", &config)
+        .err()
+        .expect("must error");
     assert!(
-        result.is_ok(),
-        "cloud fallback must succeed: {:?}",
-        result.err()
+        err.to_string()
+            .contains("OpenHuman backend provider is not available"),
+        "expected backend-removed error, got: {err}"
     );
 }
 
 #[test]
-fn openhuman_slug_routes_to_backend() {
+fn cloud_no_providers_errors_in_local_fork() {
+    // With no cloud_providers configured, "cloud" sentinel falls
+    // through to the same OpenHuman-backend hard error.
+    let config = Config::default();
+    let err = create_chat_provider_from_string("reasoning", "cloud", &config)
+        .err()
+        .expect("must error");
+    assert!(
+        err.to_string()
+            .contains("OpenHuman backend provider is not available"),
+        "expected backend-removed error, got: {err}"
+    );
+}
+
+#[test]
+fn openhuman_slug_errors_in_local_fork() {
+    // `openhuman:<model>` used to route to the backend provider.
+    // After the local-OAuth refactor it must hard-error too.
     let config = config_with_providers(vec![oh_entry("p_oh")]);
-    let (_, model) =
-        create_chat_provider_from_string("reasoning", "openhuman:", &config).expect("build");
-    assert!(!model.is_empty());
+    let err = create_chat_provider_from_string("reasoning", "openhuman:", &config)
+        .err()
+        .expect("must error");
+    assert!(
+        err.to_string()
+            .contains("OpenHuman backend provider is not available"),
+        "expected backend-removed error, got: {err}"
+    );
 }
 
 #[test]
@@ -122,30 +141,6 @@ fn ollama_prefix() {
     assert_eq!(model, "llama3.1:8b");
 }
 
-#[test]
-fn temperature_suffix_is_stripped_from_model_id() {
-    // The `@<temp>` suffix is informational for the factory — the model id sent
-    // upstream must not include it, or providers will 404 on an unknown model.
-    let config = Config::default();
-    let (_, model) =
-        create_chat_provider_from_string("heartbeat", "ollama:llama3.1:8b@0.2", &config)
-            .expect("ollama:<model>@<temp> must build");
-    assert_eq!(
-        model, "llama3.1:8b",
-        "temperature suffix must not leak into the dispatched model id"
-    );
-}
-
-#[test]
-fn malformed_temperature_suffix_kept_as_part_of_model_id() {
-    // If the tail after `@` isn't a number, treat the whole string as the model
-    // id rather than silently dropping a chunk of it.
-    let config = Config::default();
-    let (_, model) = create_chat_provider_from_string("heartbeat", "ollama:llama3@beta", &config)
-        .expect("ollama:<model>@<garbage> must still build");
-    assert_eq!(model, "llama3@beta");
-}
-
 #[tokio::test]
 async fn ollama_provider_does_not_require_api_key() {
     let mut config = Config::default();
@@ -169,7 +164,6 @@ async fn ollama_provider_does_not_require_api_key() {
 fn all_workloads_default_to_openhuman() {
     let config = Config::default();
     for role in &[
-        "chat",
         "reasoning",
         "agentic",
         "coding",
@@ -185,18 +179,6 @@ fn all_workloads_default_to_openhuman() {
             "role={role} must default to openhuman"
         );
     }
-}
-
-// Regression: the `chat` workload was added to the UI + config schema (#2152)
-// but `provider_for_role` was not extended, so every chat message silently
-// routed to the OpenHuman backend regardless of the user's `chat_provider`
-// configuration. Keep this test alongside the other override checks so the
-// arm can't drop out again.
-#[test]
-fn chat_workload_override_respected() {
-    let mut config = Config::default();
-    config.chat_provider = Some("openai:gpt-4".to_string());
-    assert_eq!(provider_for_role("chat", &config), "openai:gpt-4");
 }
 
 #[test]
@@ -339,9 +321,19 @@ async fn cloud_provider_with_malformed_endpoint_surfaces_url_error() {
 }
 
 #[test]
-fn primary_cloud_defaults_to_openhuman_when_no_providers() {
+fn primary_cloud_with_no_providers_errors_in_local_fork() {
+    // No cloud_providers, no primary_cloud, no workload override —
+    // factory must error with the backend-removed pointer rather
+    // than silently return the dead OpenHumanBackendProvider.
     let config = Config::default();
-    assert!(create_chat_provider("reasoning", &config).is_ok());
+    let err = create_chat_provider("reasoning", &config)
+        .err()
+        .expect("must error");
+    assert!(
+        err.to_string()
+            .contains("OpenHuman backend provider is not available"),
+        "expected backend-removed error, got: {err}"
+    );
 }
 
 #[test]
@@ -373,14 +365,12 @@ fn unknown_workload_falls_back_to_openhuman() {
     assert_eq!(provider_for_role("", &config), "openhuman");
 }
 
-#[test]
-fn openhuman_backend_uses_config_path_parent_as_state_dir() {
-    let mut config = Config::default();
-    config.config_path = std::path::PathBuf::from("/tmp/oh-test-workspace/config.toml");
-    let (_provider, model) = create_chat_provider("reasoning", &config)
-        .expect("openhuman backend must build with no cloud_providers");
-    assert!(!model.is_empty(), "model must be set")
-}
+// The `openhuman_backend_uses_config_path_parent_as_state_dir` test
+// was removed in the local-OAuth refactor — the OpenHuman backend
+// provider is no longer reachable, so there is no state_dir threading
+// behaviour left to assert. The user-facing fix when chat hits the
+// "no provider" path is to configure one in Settings → AI; this is
+// covered by `primary_cloud_with_no_providers_errors_in_local_fork`.
 
 // ── verify_session_active tests ──────────────────────────────────────
 
@@ -391,66 +381,7 @@ fn config_in_tempdir(tmp: &TempDir) -> Config {
     c
 }
 
-#[test]
-fn verify_session_active_rejects_when_no_session_token() {
-    let tmp = TempDir::new().expect("tempdir");
-    let config = config_in_tempdir(&tmp);
-    let err = verify_session_active(&config).expect_err("should fail without session token");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("SESSION_EXPIRED"),
-        "expected SESSION_EXPIRED, got: {msg}",
-    );
-}
-
-#[test]
-fn verify_session_active_rejects_when_token_is_empty() {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut config = config_in_tempdir(&tmp);
-    let auth = AuthService::new(tmp.path(), config.secrets.encrypt);
-    auth.store_provider_token("app-session", "default", "", Default::default(), false)
-        .expect("store empty token");
-    let err = verify_session_active(&config).expect_err("should reject empty token");
-    assert!(
-        err.to_string().contains("SESSION_EXPIRED"),
-        "expected SESSION_EXPIRED, got: {err}",
-    );
-}
-
-#[test]
-fn verify_session_active_passes_when_session_token_present() {
-    let tmp = TempDir::new().expect("tempdir");
-    let mut config = config_in_tempdir(&tmp);
-    let auth = AuthService::new(tmp.path(), config.secrets.encrypt);
-    auth.store_provider_token(
-        "app-session",
-        "default",
-        "fake-jwt-token",
-        Default::default(),
-        false,
-    )
-    .expect("store session token");
-    assert!(
-        verify_session_active(&config).is_ok(),
-        "should pass when session token exists",
-    );
-}
-
-#[test]
-fn verify_session_active_called_for_custom_provider_not_for_openhuman() {
-    // openhuman backend must always build (no session gate applied).
-    let config = Config::default();
-    assert!(create_chat_provider_from_string("reasoning", "openhuman", &config).is_ok(),);
-    // Verify that when a custom provider is tried without a session,
-    // we'd get blocked (this test exercises the non-#[cfg(test)] path
-    // by directly calling verify_session_active).
-    let tmp = TempDir::new().expect("tempdir");
-    let config = config_in_tempdir(&tmp);
-    let _ = create_chat_provider_from_string("reasoning", "ollama:llama3", &config);
-    // Under #[cfg(test)] the gate is skipped, so this succeeds.
-    // We assert the gate *would* fire by testing verify_session_active directly.
-    assert!(
-        verify_session_active(&config).is_err(),
-        "verify_session_active must reject config without session",
-    );
-}
+// The `verify_session_active` gate (and its four tests) was removed
+// in the local-OAuth refactor — the OpenHuman backend session is gone,
+// so the "no session → reject custom providers" guard no longer
+// applies to a single-user local desktop.

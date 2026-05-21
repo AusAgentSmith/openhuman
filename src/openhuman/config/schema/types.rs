@@ -9,11 +9,6 @@ use std::path::PathBuf;
 /// Standard model identifiers matching the backend model registry.
 pub const MODEL_AGENTIC_V1: &str = "agentic-v1";
 pub const MODEL_REASONING_V1: &str = "reasoning-v1";
-/// Conversational tier — the orchestrator (user-facing chat agent) rides on
-/// this by default. Backend maps it to Kimi K2.6 Turbo on Fireworks (128k
-/// context, `supportsThinking: false`) — tuned for time-to-first-token so
-/// chat responses feel snappy.
-pub const MODEL_CHAT_V1: &str = "chat-v1";
 /// Low-latency chat tier. Backend maps this to Kimi K2.6 Turbo on
 /// Fireworks (128k context, `supportsThinking: false`) — tuned for
 /// time-to-first-token on conversational turns. See backend PR #760.
@@ -23,18 +18,23 @@ pub const MODEL_CHAT_V1: &str = "chat-v1";
 /// reasoning is needed.
 pub const MODEL_REASONING_QUICK_V1: &str = "reasoning-quick-v1";
 pub const MODEL_CODING_V1: &str = "coding-v1";
-/// Default model used when no explicit model is configured.
+/// Slug of the built-in OpenAI cloud-provider entry that gets seeded
+/// into [`Config::cloud_providers`] by default. The user stores their
+/// API key against this slug via `auth_store_provider_credentials`.
+pub const DEFAULT_OPENAI_SLUG: &str = "openai";
+
+/// Default chat model used when no explicit model is configured.
 ///
-/// The orchestrator (user-facing chat agent) reads the user's message and
-/// either replies directly or delegates to a sub-agent via `spawn_subagent`.
-/// We route it through the `chat` workload (`hint:chat`) so the user-facing
-/// `chat_provider` setting in Settings → LLM → Routing actually drives the
-/// main chat turn — and so the orchestrator gets the low-latency `chat` tier
-/// by default (backend maps `hint:chat` to Kimi K2.6 Turbo, tuned for
-/// time-to-first-token; see backend PR #760). Sub-agents that actually
-/// execute tool calls explicitly ride on `hint:agentic`/`hint:coding` via
-/// their `ModelSpec::Hint(...)` declarations — see `builtin_definitions.rs`.
-pub const DEFAULT_MODEL: &str = MODEL_CHAT_V1;
+/// Routes through the seeded OpenAI cloud provider (see
+/// [`DEFAULT_OPENAI_SLUG`]) via the `/v1/responses` endpoint with
+/// `reasoning.effort = "medium"` (see
+/// [`crate::openhuman::inference::provider::compatible_types::ResponsesReasoning`]).
+///
+/// The main (user-facing) agent is a planner/router and benefits from
+/// the medium-effort reasoning tier. Sub-agents that ride on the
+/// `agentic` workload pick their own provider via the
+/// per-workload `*_provider` fields on `Config`.
+pub const DEFAULT_MODEL: &str = "openai:gpt-5.4";
 
 /// Top-level configuration (config.toml root).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

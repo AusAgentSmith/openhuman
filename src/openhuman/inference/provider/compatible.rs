@@ -38,8 +38,8 @@ use compatible_parse::{
 use compatible_stream::sse_bytes_to_chunks;
 use compatible_types::{
     ApiChatRequest, ApiChatResponse, ApiUsage, Choice, Function, Message, NativeChatRequest,
-    NativeMessage, OpenAiStreamOptions, OpenHumanMeta, ResponseMessage, ResponsesRequest,
-    StreamChunkResponse, StreamingToolCall, ToolCall,
+    NativeMessage, OpenAiStreamOptions, OpenHumanMeta, ResponseMessage, ResponsesReasoning,
+    ResponsesRequest, StreamChunkResponse, StreamingToolCall, ToolCall,
 };
 
 /// A provider that speaks the OpenAI-compatible chat completions API.
@@ -71,12 +71,6 @@ pub struct OpenAiCompatibleProvider {
     /// `temperature::glob_match`. Defaults to empty (all models support
     /// temperature); populated by the factory when the config has entries.
     pub(crate) temperature_unsupported_models: Vec<String>,
-    /// Per-workload temperature override. When `Some`, replaces the
-    /// caller-supplied `temperature` for every chat call on this provider
-    /// instance — set by the factory when the workload's provider string
-    /// carries an `@<temp>` suffix (e.g. `"openai:gpt-4o@0.2"`). The
-    /// `temperature_unsupported_models` glob filter still applies after.
-    pub(crate) temperature_override: Option<f64>,
 }
 
 /// How the provider expects the API key to be sent.
@@ -177,7 +171,6 @@ impl OpenAiCompatibleProvider {
             merge_system_into_user,
             emit_openhuman_thread_id: false,
             temperature_unsupported_models: Vec::new(),
-            temperature_override: None,
         }
     }
 
@@ -189,17 +182,9 @@ impl OpenAiCompatibleProvider {
         self
     }
 
-    /// Pin a per-workload temperature, overriding whatever the caller passes.
-    /// Set by the factory when the provider string carries an `@<temp>` suffix.
-    pub fn with_temperature_override(mut self, temperature: Option<f64>) -> Self {
-        self.temperature_override = temperature;
-        self
-    }
-
     /// Resolve the effective temperature for `model`. Returns `None` when the
     /// model matches a pattern in `temperature_unsupported_models` (causing the
-    /// field to be omitted from the serialised request). Otherwise yields the
-    /// per-workload override if one was configured, else the caller's value.
+    /// field to be omitted from the serialised request).
     fn effective_temperature(&self, model: &str, temperature: f64) -> Option<f64> {
         if self
             .temperature_unsupported_models
@@ -213,7 +198,7 @@ impl OpenAiCompatibleProvider {
             );
             None
         } else {
-            Some(self.temperature_override.unwrap_or(temperature))
+            Some(temperature)
         }
     }
 
@@ -298,25 +283,36 @@ impl OpenAiCompatibleProvider {
     }
 
     /// Build the full URL for chat completions, detecting if base_url already includes the path.
-    /// This allows custom providers with non-standard endpoints (e.g., VolcEngine ARK uses
-    /// `/api/coding/v3/chat/completions` instead of `/v1/chat/completions`).
+    /// This handles three shapes:
+    ///
+    /// 1. `https://api.openai.com/v1/chat/completions` — full endpoint already in `base_url`.
+    ///    Returned as-is. This is also what custom providers with non-standard paths
+    ///    (e.g. VolcEngine ARK's `/api/coding/v3/chat/completions`) use.
+    /// 2. `https://api.openai.com/v1` — explicit API path present but no `/chat/completions`.
+    ///    Append `/chat/completions` (the OpenAI / Anthropic / OpenRouter cloud convention).
+    /// 3. `http://localhost:1234` — base host with no path (the LM Studio / Ollama
+    ///    OpenAI-compatible / vLLM convention; users type the server's home URL).
+    ///    Append `/v1/chat/completions` — without the `/v1` LM Studio responds with
+    ///    `{"error":"Unexpected endpoint or method. (POST /chat/completions)"}`.
+    ///
+    /// Mirrors the asymmetry [`responses_url`] already has — see
+    /// `has_explicit_api_path` for the path-detection rule.
     fn chat_completions_url(&self) -> String {
-        let has_full_endpoint = reqwest::Url::parse(&self.base_url)
-            .map(|url| {
-                url.path()
-                    .trim_end_matches('/')
-                    .ends_with("/chat/completions")
-            })
-            .unwrap_or_else(|_| {
-                self.base_url
-                    .trim_end_matches('/')
-                    .ends_with("/chat/completions")
-            });
+        if self.path_ends_with("/chat/completions") {
+            return self.base_url.clone();
+        }
 
-        let url = if has_full_endpoint {
-            self.base_url.clone()
+        let normalized_base = self.base_url.trim_end_matches('/');
+        let url = if self.has_explicit_api_path() {
+            format!("{normalized_base}/chat/completions")
         } else {
-            format!("{}/chat/completions", self.base_url)
+            // No path on the base URL — assume the OpenAI `/v1` convention.
+            // Local OpenAI-compatible servers (LM Studio, vLLM, llamacpp,
+            // Ollama's `/v1/*` shim) all require this; cloud providers
+            // configured via the UI ship with `/v1` baked into the
+            // `cloud_providers.endpoint` field already and hit the
+            // `has_explicit_api_path` branch above.
+            format!("{normalized_base}/v1/chat/completions")
         };
         log::info!(
             "[provider:{}] outbound chat/completions -> {}",
@@ -439,6 +435,7 @@ impl OpenAiCompatibleProvider {
             input,
             instructions,
             stream: Some(false),
+            reasoning: ResponsesReasoning::default_for(model),
         };
 
         let url = self.responses_url();
@@ -750,10 +747,6 @@ impl OpenAiCompatibleProvider {
         .any(|hint| lower.contains(hint))
     }
 
-    fn err_supports_no_tools_retry(error: &str) -> bool {
-        Self::is_native_tool_schema_unsupported(reqwest::StatusCode::BAD_REQUEST, error)
-    }
-
     /// Streaming variant of the native-tools chat path.
     ///
     /// Sends the request with `stream: true`, consumes the upstream SSE
@@ -772,7 +765,7 @@ impl OpenAiCompatibleProvider {
         use futures_util::StreamExt;
 
         let url = self.chat_completions_url();
-        log::info!(
+        log::debug!(
             "[stream] {} POST {} (stream=true, tools={})",
             self.name,
             url,
@@ -838,9 +831,8 @@ impl OpenAiCompatibleProvider {
             .map(|ct| ct.to_ascii_lowercase().contains("text/event-stream"))
             .unwrap_or(false);
         if !is_sse {
-            log::warn!(
-                "[stream] {} upstream replied with non-SSE content-type; falling back to JSON parse \
-                 (no token deltas reach the UI)",
+            log::debug!(
+                "[stream] {} upstream replied with non-SSE content-type; falling back to JSON parse",
                 self.name,
             );
             let response_bytes = response.bytes().await?;
@@ -1053,15 +1045,6 @@ impl OpenAiCompatibleProvider {
                 }
             }
         }
-
-        let tool_call_count = tool_accum.len();
-        log::info!(
-            "[stream] {} aggregated text_chars={} thinking_chars={} tool_calls={}",
-            self.name,
-            text_accum.chars().count(),
-            thinking_accum.chars().count(),
-            tool_call_count,
-        );
 
         // Aggregate the collected tool calls into the unified response
         // shape. We reuse `parse_native_response` by building an
@@ -1562,46 +1545,11 @@ impl Provider for OpenAiCompatibleProvider {
             {
                 Ok(resp) => return Ok(resp),
                 Err(err) => {
-                    let err_str = err.to_string();
-                    // Some local-runtime models (e.g. Ollama serving
-                    // gemma3, llama3.2:1b, …) reject the request with
-                    // "<model> does not support tools" when the
-                    // ChatRequest carries a `tools` array. Retry the
-                    // streaming call once with tools stripped so the
-                    // user still gets a live token stream — without
-                    // this we'd silently fall through to the buffered
-                    // non-streaming path and the UI would render the
-                    // reply all at once.
-                    if tools.is_some() && Self::err_supports_no_tools_retry(&err_str) {
-                        log::info!(
-                            "[stream] {} model does not support tools — retrying streaming without tools",
-                            self.name,
-                        );
-                        let retry_request = NativeChatRequest {
-                            tools: None,
-                            tool_choice: None,
-                            ..native_request.clone()
-                        };
-                        match self
-                            .stream_native_chat(credential, &retry_request, tx, stream_dump_seq)
-                            .await
-                        {
-                            Ok(resp) => return Ok(resp),
-                            Err(retry_err) => {
-                                log::warn!(
-                                    "[stream] {} retry without tools also failed, falling back to non-streaming: {}",
-                                    self.name,
-                                    retry_err
-                                );
-                            }
-                        }
-                    } else {
-                        log::warn!(
-                            "[stream] {} streaming chat failed, falling back to non-streaming: {}",
-                            self.name,
-                            err
-                        );
-                    }
+                    log::warn!(
+                        "[stream] {} streaming chat failed, falling back to non-streaming: {}",
+                        self.name,
+                        err
+                    );
                     // Fall through to the non-streaming path below.
                 }
             }

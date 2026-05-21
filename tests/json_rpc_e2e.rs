@@ -2045,7 +2045,8 @@ async fn json_rpc_web_chat_routing_cases_use_expected_backend_models() {
 }
 
 #[tokio::test]
-async fn json_rpc_web_chat_custom_chat_provider_uses_stored_key_and_rebuilds_on_route_change() {
+async fn json_rpc_web_chat_custom_reasoning_provider_uses_stored_key_and_rebuilds_on_route_change()
+{
     let _env_lock = json_rpc_e2e_env_lock();
     let tmp = tempdir().expect("tempdir");
     let home = tmp.path();
@@ -2091,7 +2092,7 @@ async fn json_rpc_web_chat_custom_chat_provider_uses_stored_key_and_rebuilds_on_
                 "endpoint": mock_origin,
                 "auth_style": "bearer"
             }],
-            "chat_provider": "openai:gpt-4.1-mini"
+            "reasoning_provider": "openai:gpt-4.1-mini"
         }),
     )
     .await;
@@ -2169,7 +2170,7 @@ async fn json_rpc_web_chat_custom_chat_provider_uses_stored_key_and_rebuilds_on_
         6005,
         "openhuman.update_model_settings",
         json!({
-            "chat_provider": "openai:gpt-4.1-nano"
+            "reasoning_provider": "openai:gpt-4.1-nano"
         }),
     )
     .await;
@@ -2212,7 +2213,7 @@ async fn json_rpc_web_chat_custom_chat_provider_uses_stored_key_and_rebuilds_on_
     assert_eq!(
         requests[1].get("model").and_then(Value::as_str),
         Some("gpt-4.1-nano"),
-        "cached web-chat session should rebuild when chat_provider changes"
+        "cached web-chat session should rebuild when reasoning_provider changes"
     );
     assert_eq!(
         requests[1].get("authorization").and_then(Value::as_str),
@@ -2270,7 +2271,7 @@ async fn json_rpc_web_chat_custom_chat_provider_uses_stored_key_and_rebuilds_on_
 }
 
 #[tokio::test]
-async fn json_rpc_web_chat_custom_chat_provider_with_auth_none_omits_auth_header() {
+async fn json_rpc_web_chat_custom_reasoning_provider_with_auth_none_omits_auth_header() {
     let _env_lock = json_rpc_e2e_env_lock();
     let tmp = tempdir().expect("tempdir");
     let home = tmp.path();
@@ -2316,7 +2317,7 @@ async fn json_rpc_web_chat_custom_chat_provider_with_auth_none_omits_auth_header
                 "endpoint": mock_origin,
                 "auth_style": "none"
             }],
-            "chat_provider": "proxy:gpt-oss"
+            "reasoning_provider": "proxy:gpt-oss"
         }),
     )
     .await;
@@ -2326,7 +2327,7 @@ async fn json_rpc_web_chat_custom_chat_provider_with_auth_none_omits_auth_header
     let cfg_payload = cfg_outer.get("result").unwrap_or(&cfg_outer);
     let config = cfg_payload.get("config").unwrap_or(cfg_payload);
     assert_eq!(
-        config.get("chat_provider").and_then(Value::as_str),
+        config.get("reasoning_provider").and_then(Value::as_str),
         Some("proxy:gpt-oss")
     );
     assert_eq!(
@@ -2340,7 +2341,7 @@ async fn json_rpc_web_chat_custom_chat_provider_with_auth_none_omits_auth_header
         .await
         .expect("load_config after auth-none update");
     let (provider, model) = openhuman_core::openhuman::inference::provider::create_chat_provider(
-        "chat",
+        "reasoning",
         &loaded_config,
     )
     .expect("custom auth-none provider should build");

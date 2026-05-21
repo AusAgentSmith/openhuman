@@ -46,8 +46,24 @@ pub async fn list_configured_models(
         .cloned()
         .ok_or_else(|| format!("no cloud provider with id or slug '{}' found", provider_id))?;
 
-    let base = entry.endpoint.trim_end_matches('/');
+    let base = entry.endpoint.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Err(format!(
+            "cloud provider '{}' has an empty endpoint; configure one in Settings → AI",
+            entry.slug
+        ));
+    }
     let models_url = format!("{}/models", base);
+
+    // Parse early so we fail with a clear "invalid endpoint URL" message
+    // before we hit the reqwest builder's opaque "builder error" later.
+    let parsed_url = reqwest::Url::parse(&models_url).map_err(|e| {
+        format!(
+            "cloud provider '{}' endpoint '{}' is not a valid URL ({}); \
+             expected something like `http://127.0.0.1:11434/v1`",
+            entry.slug, entry.endpoint, e
+        )
+    })?;
 
     log::debug!(
         "[providers][list_models] fetching url={} slug={}",
@@ -59,11 +75,32 @@ pub async fn list_configured_models(
         crate::openhuman::inference::provider::factory::lookup_key_for_slug(&entry.slug, &config)
             .unwrap_or_default();
 
-    let client = crate::openhuman::config::build_runtime_proxy_client_with_timeouts(
-        "providers.list_models",
-        30,
-        10,
+    // Loopback endpoints (Ollama / LM Studio / dev mocks) must bypass the
+    // runtime proxy — even an otherwise-correct proxy is the wrong route
+    // for 127.0.0.1, and a misconfigured one surfaces here as an opaque
+    // reqwest "builder error". A vanilla client is fine for local URLs;
+    // remote providers continue to use the proxied client.
+    let is_loopback = matches!(
+        parsed_url.host_str(),
+        Some("127.0.0.1") | Some("::1") | Some("localhost")
     );
+    let client = if is_loopback {
+        log::debug!(
+            "[providers][list_models] using direct client for loopback url={}",
+            models_url
+        );
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("[providers][list_models] failed to build direct client: {e}"))?
+    } else {
+        crate::openhuman::config::build_runtime_proxy_client_with_timeouts(
+            "providers.list_models",
+            30,
+            10,
+        )
+    };
 
     let mut request = client.get(&models_url);
 
@@ -93,10 +130,20 @@ pub async fn list_configured_models(
         AuthStyle::None => request,
     };
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("[providers][list_models] HTTP request failed: {}", e))?;
+    let response = request.send().await.map_err(|e| {
+        use std::error::Error;
+        let mut chain = format!("{e}");
+        let mut src: Option<&dyn std::error::Error> = Error::source(&e);
+        while let Some(inner) = src {
+            chain.push_str(" -> ");
+            chain.push_str(&format!("{inner}"));
+            src = inner.source();
+        }
+        format!(
+            "[providers][list_models] HTTP request to {} failed: {}",
+            models_url, chain
+        )
+    })?;
 
     let status = response.status();
     if !status.is_success() {
@@ -115,40 +162,11 @@ pub async fn list_configured_models(
         .await
         .map_err(|e| format!("[providers][list_models] failed to parse JSON: {}", e))?;
 
-    // OpenAI-compatible servers occasionally return HTTP 200 with an error
-    // payload instead of a 4xx (LM Studio does this for unknown paths like
-    // `/v11/models` — body `{"error":"Unexpected endpoint or method..."}`).
-    // Treat any top-level `error` field as a failure so the AI-panel probe
-    // doesn't silently accept a typo'd endpoint.
-    if let Some(err_field) = body.get("error") {
-        let msg = err_field
-            .as_str()
-            .map(|s| s.to_string())
-            .or_else(|| {
-                err_field
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_else(|| err_field.to_string());
-        let sanitized = sanitize_api_error(&msg);
-        return Err(format!("provider returned error payload: {}", sanitized));
-    }
-
-    // A valid `/models` response has a top-level `data` array (per the
-    // OpenAI API contract). Missing it means the endpoint isn't
-    // `/models`-compatible — the user almost certainly typed the wrong
-    // path. Fail loudly so the AI-panel probe surfaces the mistake.
-    let Some(data) = body.get("data").and_then(|d| d.as_array()).cloned() else {
-        let keys = body
-            .as_object()
-            .map(|o| o.keys().cloned().collect::<Vec<_>>().join(", "))
-            .unwrap_or_else(|| "<non-object>".to_string());
-        return Err(format!(
-            "provider response missing `data` array — endpoint is not OpenAI-compatible (got keys: {})",
-            keys
-        ));
-    };
+    let data = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     let models: Vec<ModelInfo> = data
         .iter()
@@ -389,54 +407,68 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
 
 /// Create the inference provider.
 ///
-/// - `inference_url`: optional custom OpenAI-compatible LLM endpoint
-///   (`config.inference_url`). When set together with `api_key`, inference
-///   talks directly to this URL — keeping product-backend traffic
-///   (auth/billing/voice) on `backend_url` where it belongs.
-/// - `backend_url`: the OpenHuman product backend URL (`config.api_url`).
-///   Used by the fallback [`openhuman_backend::OpenHumanBackendProvider`]
-///   which routes inference to `{backend}/openai/v1/...` with the app
-///   session JWT.
-/// - `api_key`: the API key for the custom inference endpoint. Ignored on
-///   the OpenHuman fallback path (the backend uses a session JWT, not a
-///   user-supplied key).
+/// - `inference_url`: a custom OpenAI-compatible LLM endpoint
+///   (`config.inference_url`). **Required** in the closedhuman fork: the
+///   legacy fallback to the OpenHuman product backend is gone, so a
+///   missing URL is now a hard error rather than a silent route to a
+///   non-existent backend.
+/// - `backend_url`: previously the OpenHuman product backend URL. Kept
+///   on the signature so existing call sites still type-check; ignored
+///   on every code path now that the backend fallback is removed.
+/// - `api_key`: the API key for the custom inference endpoint. Optional
+///   when the user's endpoint genuinely doesn't need auth (e.g. a local
+///   Ollama listener). Omitting it surfaces a `AuthStyle::None` provider
+///   rather than silently routing to the backend.
+///
+/// ## Errors
+///
+/// Returns `Err` with a user-facing pointer at Settings → AI when
+/// `inference_url` is missing. This replaces the previous silent
+/// `OpenHumanBackendProvider` construction that surfaced downstream as
+/// `SESSION_EXPIRED: backend session not active` — confusing because it
+/// suggested "re-login" when the actual root cause was "no provider
+/// configured in this fork's local-OAuth model".
 pub fn create_backend_inference_provider(
     inference_url: Option<&str>,
     backend_url: Option<&str>,
     api_key: Option<&str>,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    if let (Some(url), Some(key)) = (inference_url, api_key) {
-        log::info!(
-            "[providers] inference target = custom_openai @ {} (api_key bytes={})",
-            url,
-            key.len()
-        );
-        Ok(Box::new(
-            crate::openhuman::inference::provider::compatible::OpenAiCompatibleProvider::new(
-                "custom_openai",
-                url,
-                Some(key),
-                crate::openhuman::inference::provider::compatible::AuthStyle::Bearer,
-            ),
-        ))
+    let _ = (backend_url, options);
+    let trimmed_url = inference_url.map(str::trim).filter(|s| !s.is_empty());
+
+    let url = trimmed_url.ok_or_else(|| {
+        anyhow::anyhow!(
+            "[providers] no inference endpoint configured — the closedhuman fork \
+             does not have a hosted LLM backend. Add a provider under \
+             Settings → AI (OpenAI, Anthropic, OpenRouter, or a custom \
+             OpenAI-compatible endpoint) and set the corresponding \
+             `*_provider` config field, or set `inference_url` directly."
+        )
+    })?;
+
+    let trimmed_key = api_key.map(str::trim).filter(|s| !s.is_empty());
+    let auth_style = if trimmed_key.is_some() {
+        crate::openhuman::inference::provider::compatible::AuthStyle::Bearer
     } else {
-        if api_key.is_some() && inference_url.is_none() {
-            log::warn!(
-                "[providers] api_key provided without inference_url — key will be ignored, using OpenHuman backend"
-            );
-        }
-        log::info!(
-            "[providers] inference target = openhuman_backend (backend_url={}, inference_url_set={}, api_key_set={})",
-            backend_url.unwrap_or("<default>"),
-            inference_url.is_some(),
-            api_key.is_some()
-        );
-        Ok(Box::new(openhuman_backend::OpenHumanBackendProvider::new(
-            backend_url,
-            options,
-        )))
-    }
+        crate::openhuman::inference::provider::compatible::AuthStyle::None
+    };
+
+    log::info!(
+        "[providers] inference target = custom_openai @ {} (auth={:?}, api_key_set={})",
+        url,
+        auth_style,
+        trimmed_key.is_some()
+    );
+
+    Ok(Box::new(
+        crate::openhuman::inference::provider::compatible::OpenAiCompatibleProvider::new(
+            "custom_openai",
+            url,
+            trimmed_key,
+            auth_style,
+        ),
+    ))
 }
 
 /// Create provider chain with retry and fallback behavior.
@@ -564,6 +596,50 @@ pub fn create_intelligent_routing_provider(
     config: &crate::openhuman::config::Config,
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
+    // Local-OAuth fork: when the user has configured at least one
+    // non-openhuman cloud-providers entry and is NOT pointing the
+    // legacy `inference_url` at a custom OpenAI-compatible host, route
+    // through the workload factory so the channel runtime and
+    // /threads chat both end up calling the user's primary_cloud
+    // (typically the seeded "openai" row). Without this, both call
+    // sites silently fell back to `OpenHumanBackendProvider`, which
+    // hard-errors with the SESSION_EXPIRED sentinel in this build —
+    // the user-visible symptom was the Telegram bot reporting
+    // `openhuman:<model>` provider failures even though Settings →
+    // AI was pointed at OpenAI or Ollama.
+    let has_user_cloud = config
+        .cloud_providers
+        .iter()
+        .any(|e| e.slug != INFERENCE_BACKEND_ID);
+    if has_user_cloud && inference_url.is_none() {
+        let provider_str = factory::provider_for_role("reasoning", config);
+        log::info!(
+            "[providers] intelligent routing: using workload factory provider_str={}",
+            provider_str
+        );
+        let (workload_provider, resolved_model) =
+            factory::create_chat_provider_from_string("reasoning", &provider_str, config)?;
+        let fallback_model = if resolved_model.trim().is_empty() {
+            config
+                .default_model
+                .clone()
+                .unwrap_or_else(|| crate::openhuman::config::DEFAULT_MODEL.to_string())
+        } else {
+            resolved_model
+        };
+        let reliable: Box<dyn Provider> = Box::new(
+            reliable::ReliableProvider::new(
+                vec![(INFERENCE_BACKEND_ID.to_string(), workload_provider)],
+                config.reliability.provider_retries,
+                config.reliability.provider_backoff_ms,
+            )
+            .with_model_fallbacks(config.reliability.model_fallbacks.clone()),
+        );
+        let provider =
+            crate::openhuman::routing::new_provider(reliable, &config.local_ai, &fallback_model);
+        return Ok(Box::new(provider));
+    }
+
     let raw_backend =
         create_backend_inference_provider(inference_url, backend_url, api_key, options)?;
     // Wrap the raw backend in ReliableProvider so transient 502/503/504 errors
@@ -720,14 +796,77 @@ mod tests {
     }
 
     #[test]
-    fn factory_backend() {
-        assert!(create_backend_inference_provider(
+    fn create_backend_inference_provider_errors_without_url() {
+        // The closedhuman fork has no hosted backend, so a missing
+        // `inference_url` must surface an actionable error rather than
+        // silently routing to OpenHumanBackendProvider (which would 401
+        // downstream with the confusing SESSION_EXPIRED sentinel).
+        let err = create_backend_inference_provider(
             None,
-            None,
-            None,
-            &ProviderRuntimeOptions::default()
+            Some("https://backend.example.com"),
+            Some("sk-some-key"),
+            &ProviderRuntimeOptions::default(),
         )
-        .is_ok());
+        .err()
+        .expect("missing inference_url must error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Settings → AI"),
+            "error should point at Settings → AI: {msg}"
+        );
+        assert!(
+            msg.contains("no inference endpoint configured"),
+            "error should name the missing config knob: {msg}"
+        );
+    }
+
+    #[test]
+    fn create_backend_inference_provider_errors_on_empty_url() {
+        // Whitespace-only inference_url is treated the same as missing —
+        // the user wrote nothing, just with extra ceremony.
+        let err = create_backend_inference_provider(
+            Some("   \t  "),
+            None,
+            Some("sk-some-key"),
+            &ProviderRuntimeOptions::default(),
+        )
+        .err()
+        .expect("blank inference_url must error");
+        assert!(err.to_string().contains("Settings → AI"));
+    }
+
+    #[test]
+    fn create_backend_inference_provider_succeeds_with_url_and_key() {
+        // Bearer-style auth — most cloud OpenAI-compatible providers.
+        let provider = create_backend_inference_provider(
+            Some("https://api.example.com/v1"),
+            None,
+            Some("sk-test-key"),
+            &ProviderRuntimeOptions::default(),
+        );
+        assert!(
+            provider.is_ok(),
+            "url + key should build cleanly: {:?}",
+            provider.err()
+        );
+    }
+
+    #[test]
+    fn create_backend_inference_provider_succeeds_with_url_only() {
+        // Local OpenAI-compatible endpoints (e.g. Ollama, mlx-audio) may
+        // not require auth. `AuthStyle::None` should let the call go
+        // through rather than blocking on a missing key.
+        let provider = create_backend_inference_provider(
+            Some("http://localhost:11434/v1"),
+            None,
+            None,
+            &ProviderRuntimeOptions::default(),
+        );
+        assert!(
+            provider.is_ok(),
+            "url without key should build cleanly: {:?}",
+            provider.err()
+        );
     }
 
     #[test]
