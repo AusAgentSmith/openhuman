@@ -1601,8 +1601,8 @@ type CefCommandLineArg = (&'static str, Option<&'static str>);
 // Must be called AFTER CefInitialize (which installs its own handler) so we override it.
 #[cfg(target_os = "linux")]
 fn install_x11_error_handler() {
-    use x11_dl::xlib;
     use std::sync::LazyLock;
+    use x11_dl::xlib;
 
     static X11: LazyLock<Option<xlib::Xlib>> = LazyLock::new(|| xlib::Xlib::open().ok());
 
