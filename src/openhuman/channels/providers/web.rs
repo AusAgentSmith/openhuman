@@ -230,6 +230,13 @@ fn with_provider_detail(summary: &str, err: &str) -> String {
 
 fn classify_inference_error(err: &str) -> (&'static str, String) {
     let lower = err.to_lowercase();
+    // No provider configured — surface the actionable message directly.
+    if lower.contains("no llm provider configured") || lower.contains("add a provider under settings") {
+        return (
+            "not_configured",
+            "No AI provider configured. Go to Settings → AI to add your API key.".to_string(),
+        );
+    }
     if lower.contains("rate limit") || lower.contains("429") {
         (
             "rate_limited",
