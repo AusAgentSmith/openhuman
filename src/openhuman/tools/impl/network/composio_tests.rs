@@ -212,6 +212,29 @@ fn extract_redirect_url_supports_v2_and_v3_shapes() {
 }
 
 #[test]
+fn extract_auth_config_id_supports_common_create_shapes() {
+    let top_level = json!({"id": "ac_top"});
+    let nested = json!({"auth_config": {"id": "ac_nested"}});
+    let data = json!({"data": {"id": "ac_data"}});
+    let data_nested = json!({"data": {"auth_config": {"id": "ac_data_nested"}}});
+
+    assert_eq!(
+        extract_auth_config_id(&top_level).as_deref(),
+        Some("ac_top")
+    );
+    assert_eq!(
+        extract_auth_config_id(&nested).as_deref(),
+        Some("ac_nested")
+    );
+    assert_eq!(extract_auth_config_id(&data).as_deref(), Some("ac_data"));
+    assert_eq!(
+        extract_auth_config_id(&data_nested).as_deref(),
+        Some("ac_data_nested")
+    );
+    assert_eq!(extract_auth_config_id(&json!({"data": {}})), None);
+}
+
+#[test]
 fn auth_config_prefers_enabled_status() {
     let enabled = ComposioAuthConfig {
         id: "cfg_1".into(),

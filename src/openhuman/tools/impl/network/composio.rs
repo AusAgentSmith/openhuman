@@ -6,8 +6,8 @@
 // This is opt-in. Users who prefer sovereign/local-only mode skip this entirely.
 // The Composio API key is stored in the encrypted secret store.
 
-use crate::openhuman::security::policy::ToolOperation;
 use crate::openhuman::security::SecurityPolicy;
+use crate::openhuman::security::policy::ToolOperation;
 use crate::openhuman::tools::traits::{Tool, ToolCategory, ToolResult};
 use anyhow::Context;
 use async_trait::async_trait;
@@ -978,9 +978,11 @@ impl ComposioTool {
             .context("Failed to decode Composio v3 auth configs response")?;
 
         if body.items.is_empty() {
-            anyhow::bail!(
-                "No auth config found for toolkit '{app_name}'. Create one in Composio first."
+            tracing::debug!(
+                toolkit = %app_name,
+                "[composio-direct] no auth config found; creating managed auth config"
             );
+            return self.create_managed_auth_config(app_name).await;
         }
 
         let preferred = body
@@ -991,6 +993,41 @@ impl ComposioTool {
             .context("No usable auth config returned by Composio")?;
 
         Ok(preferred.id.clone())
+    }
+
+    async fn create_managed_auth_config(&self, app_name: &str) -> anyhow::Result<String> {
+        let app_name = app_name.trim();
+        if app_name.is_empty() {
+            anyhow::bail!("composio create auth config: toolkit must not be empty");
+        }
+
+        let url = format!("{COMPOSIO_API_BASE_V3}/auth_configs");
+        let body = json!({
+            "toolkit": {
+                "slug": app_name,
+            },
+        });
+
+        let resp = self
+            .client()
+            .post(&url)
+            .header("x-api-key", &self.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err = response_error(resp).await;
+            anyhow::bail!("Composio v3 auth config create failed: {err}");
+        }
+
+        let result: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to decode Composio v3 auth config create response")?;
+        extract_auth_config_id(&result).ok_or_else(|| {
+            anyhow::anyhow!("Composio v3 auth config create response did not include an id")
+        })
     }
 }
 
@@ -1222,6 +1259,32 @@ fn extract_redirect_url(result: &serde_json::Value) -> Option<String> {
             result
                 .get("data")
                 .and_then(|v| v.get("redirect_url"))
+                .and_then(|v| v.as_str())
+        })
+        .map(ToString::to_string)
+}
+
+fn extract_auth_config_id(result: &serde_json::Value) -> Option<String> {
+    result
+        .get("id")
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            result
+                .get("auth_config")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            result
+                .get("data")
+                .and_then(|v| v.get("id"))
+                .and_then(|v| v.as_str())
+        })
+        .or_else(|| {
+            result
+                .get("data")
+                .and_then(|v| v.get("auth_config"))
+                .and_then(|v| v.get("id"))
                 .and_then(|v| v.as_str())
         })
         .map(ToString::to_string)
