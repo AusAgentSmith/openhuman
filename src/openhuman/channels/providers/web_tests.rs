@@ -1,14 +1,14 @@
 use super::{
     all_web_channel_controller_schemas, all_web_channel_registered_controllers, cancel_chat,
-    classify_inference_error, compose_system_prompt_suffix, event_session_id_for,
-    extract_provider_error_detail, generic_inference_error_user_message,
+    classify_inference_error, compose_system_prompt_suffix, concrete_model_override,
+    event_session_id_for, extract_provider_error_detail, generic_inference_error_user_message,
     inference_budget_exceeded_user_message, is_inference_budget_exceeded_error, json_output,
     key_for, locale_reply_directive, normalize_model_override, optional_f64, optional_string,
     provider_role_for_model_override, required_string, schemas,
     set_test_forced_run_chat_task_error, start_chat, subscribe_web_channel_events,
 };
 use crate::core::TypeSchema;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 /// Ensures the test-only forced run_chat_task failure toggle is always reset,
 /// even if the test panics before reaching explicit cleanup code.
@@ -176,8 +176,11 @@ fn generic_error_copy_is_sanitized_and_has_discord_report_action() {
     let message = generic_inference_error_user_message();
     assert!(message.contains("Something went wrong. Please try again."));
     assert!(message.contains("This error has been reported."));
-    assert!(message
-        .contains("<openhuman-link path=\"community/discord\">Report on Discord</openhuman-link>"));
+    assert!(
+        message.contains(
+            "<openhuman-link path=\"community/discord\">Report on Discord</openhuman-link>"
+        )
+    );
 }
 
 // ── Schema catalog ────────────────────────────────────────────
@@ -206,18 +209,21 @@ fn chat_schema_requires_client_thread_message() {
     assert!(required.contains(&"thread_id"));
     assert!(required.contains(&"message"));
     // model_override and temperature must be optional.
-    assert!(s
-        .inputs
-        .iter()
-        .any(|f| f.name == "model_override" && !f.required));
-    assert!(s
-        .inputs
-        .iter()
-        .any(|f| f.name == "temperature" && !f.required));
-    assert!(s
-        .inputs
-        .iter()
-        .any(|f| f.name == "profile_id" && !f.required));
+    assert!(
+        s.inputs
+            .iter()
+            .any(|f| f.name == "model_override" && !f.required)
+    );
+    assert!(
+        s.inputs
+            .iter()
+            .any(|f| f.name == "temperature" && !f.required)
+    );
+    assert!(
+        s.inputs
+            .iter()
+            .any(|f| f.name == "profile_id" && !f.required)
+    );
 }
 
 #[test]
@@ -363,6 +369,10 @@ fn fingerprint_provider_binding_variants_differ() {
 #[test]
 fn provider_role_override_routes_hint_workloads() {
     assert_eq!(
+        provider_role_for_model_override(Some("reasoning-v1")),
+        "reasoning"
+    );
+    assert_eq!(
         provider_role_for_model_override(Some("hint:agentic")),
         "agentic"
     );
@@ -387,6 +397,23 @@ fn provider_role_override_routes_hint_workloads() {
         "reasoning"
     );
     assert_eq!(provider_role_for_model_override(None), "reasoning");
+}
+
+#[test]
+fn concrete_model_override_drops_abstract_tier_hints() {
+    assert_eq!(concrete_model_override(Some("reasoning-v1")), None);
+    assert_eq!(concrete_model_override(Some("hint:reasoning")), None);
+    assert_eq!(concrete_model_override(Some("agentic-v1")), None);
+    assert_eq!(concrete_model_override(Some("coding-v1")), None);
+    assert_eq!(concrete_model_override(Some("summarization-v1")), None);
+    assert_eq!(
+        concrete_model_override(Some(" openai:gpt-5.4-mini ")),
+        Some("openai:gpt-5.4-mini".to_string())
+    );
+    assert_eq!(
+        concrete_model_override(Some("gpt-5.4-mini")),
+        Some("gpt-5.4-mini".to_string())
+    );
 }
 
 #[test]

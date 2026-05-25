@@ -80,9 +80,6 @@ import {
 } from './conversations/utils/format';
 import { isThreadVisibleInTab, WORKERS_TAB_VALUE } from './conversations/utils/threadFilter';
 
-// Chat uses the reasoning model; `agentic-v1` is reserved for sub-agents
-// that execute tool calls, not the primary user-facing conversation.
-const CHAT_MODEL_ID = 'reasoning-v1';
 /** Maximum trailing characters rendered in the live-streaming assistant
  *  preview bubble. The full response is revealed via `addInferenceResponse`
  *  on `chat_done` — this is purely a ticker-tape affordance to signal
@@ -735,7 +732,6 @@ const Conversations = ({ variant = 'page', composer = 'text' }: ConversationsPro
       await chatSend({
         threadId: sendingThreadId,
         message: trimmed,
-        model: CHAT_MODEL_ID,
         profileId: selectedAgentProfileId,
         locale: uiLocale,
       });

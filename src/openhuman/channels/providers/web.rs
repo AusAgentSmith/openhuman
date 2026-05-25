@@ -1,20 +1,20 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
 
 use crate::core::all::{ControllerFuture, RegisteredController};
 use crate::core::socketio::{SubagentProgressDetail, WebChannelEvent};
 use crate::core::{ControllerSchema, FieldSchema, TypeSchema};
-use crate::openhuman::agent::profiles::{AgentProfile, AgentProfileStore, DEFAULT_PROFILE_ID};
 use crate::openhuman::agent::Agent;
-use crate::openhuman::config::rpc as config_rpc;
+use crate::openhuman::agent::profiles::{AgentProfile, AgentProfileStore, DEFAULT_PROFILE_ID};
 use crate::openhuman::config::Config;
+use crate::openhuman::config::rpc as config_rpc;
 use crate::openhuman::prompt_injection::{
-    enforce_prompt_input, PromptEnforcementAction, PromptEnforcementContext,
+    PromptEnforcementAction, PromptEnforcementContext, enforce_prompt_input,
 };
 use crate::openhuman::threads::turn_state::{TurnStateMirror, TurnStateStore};
 use crate::rpc::RpcOutcome;
@@ -1351,10 +1351,22 @@ fn normalize_model_override(model_override: Option<String>) -> Option<String> {
 
 fn provider_role_for_model_override(model_override: Option<&str>) -> &'static str {
     match model_override.map(str::trim) {
+        Some("hint:reasoning") | Some("reasoning-v1") | Some("reasoning-quick-v1") => "reasoning",
         Some("hint:agentic") | Some("agentic-v1") => "agentic",
         Some("hint:coding") | Some("coding-v1") => "coding",
         Some("hint:summarization") | Some("summarization-v1") => "summarization",
         _ => "reasoning",
+    }
+}
+
+fn concrete_model_override(model_override: Option<&str>) -> Option<String> {
+    let model = model_override?.trim();
+    match model {
+        "hint:reasoning" | "reasoning-v1" | "reasoning-quick-v1" | "hint:agentic"
+        | "agentic-v1" | "hint:coding" | "coding-v1" | "hint:summarization"
+        | "summarization-v1" => None,
+        _ if model.is_empty() => None,
+        _ => Some(model.to_string()),
     }
 }
 
@@ -1369,10 +1381,10 @@ fn build_session_agent(
     locale: Option<&str>,
 ) -> Result<Agent, String> {
     let mut effective = config.clone();
-    if let Some(model) = model_override {
+    if let Some(model) = concrete_model_override(model_override.as_deref()) {
         effective.default_model = Some(model);
     }
-    let provider_role = provider_role_for_model_override(effective.default_model.as_deref());
+    let provider_role = provider_role_for_model_override(model_override.as_deref());
     if let Some(temp) = temperature {
         effective.default_temperature = temp;
     }
