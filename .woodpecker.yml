@@ -1,19 +1,10 @@
 when:
   - event: push
     branch: main
-    paths:
-      include:
-        - Dockerfile
-        - .dockerignore
-        - Cargo.toml
-        - Cargo.lock
-        - rust-toolchain.toml
-        - src/**
-        - tests/**
   - event: manual
 
-# Skip submodule init: tauri-cef/tauri-plugin-notification are desktop-only;
-# the server (openhuman-core) binary only needs the Rust source in src/.
+# Skip submodule init here; tauri-cef and tauri-plugin-notification are
+# initialised inside build-deb below (public GitHub repos, no auth needed).
 clone:
   git:
     image: woodpeckerci/plugin-git
@@ -62,6 +53,85 @@ steps:
       - 'curl -sSf -H "Authorization: token $GIT_AUTH_TOKEN" -o /tmp/komodo-deploy.sh https://repo.indexarr.net/indexarr/ops/raw/branch/main/scripts/komodo-deploy.sh'
       - chmod +x /tmp/komodo-deploy.sh
       - STACK_NAME=prod-openhuman-core STACK_DIR=prod/openhuman-core IMAGE_NAME=repo.indexarr.net/indexarr/openhuman-core IMAGE_TAG=$CI_COMMIT_SHA bash /tmp/komodo-deploy.sh
+    when:
+      - event: [push, manual]
+
+  # Builds the Linux desktop .deb and uploads it to the Forgejo generic
+  # package registry at:
+  #   /api/packages/indexarr/generic/openhuman-deb/<short-sha>/openhuman_<ver>_amd64.deb
+  #
+  # Note: first run is slow (~30–60 min) — the vendored tauri-cli and CEF
+  # binary are compiled/downloaded fresh. Cargo deps are cached via the
+  # cargo-registry/cargo-git named volumes on the CI agent.
+  - name: build-deb
+    image: rust:1.93-bookworm
+    environment:
+      CEF_PATH: /tmp/cef
+      GIT_AUTH_TOKEN:
+        from_secret: git_auth_token
+    commands:
+      - |
+        set -euo pipefail
+
+        # ── system deps (GTK3 + WebKit + CEF X11/DRM + build tools) ──────────
+        apt-get update -qq
+        apt-get install -y --no-install-recommends \
+          build-essential cmake pkg-config libssl-dev clang mold \
+          libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+          libatk1.0-dev libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
+          libx11-dev libxrandr-dev libxcomposite-dev libxdamage-dev libxext-dev \
+          libxfixes-dev libxrender-dev libxtst-dev libxdo-dev libevdev-dev \
+          libdrm-dev libgbm-dev libasound2-dev \
+          git curl ca-certificates >/dev/null
+
+        # ── Node.js 22 + pnpm ────────────────────────────────────────────────
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+        apt-get install -y nodejs >/dev/null
+        npm install -g pnpm >/dev/null
+
+        # ── submodules (pinned commits from git index; both are public GitHub) ─
+        git submodule update --init --depth=1 app/src-tauri/vendor/tauri-cef
+        git submodule update --init --depth=1 app/src-tauri/vendor/tauri-plugin-notification
+
+        # ── pnpm deps ────────────────────────────────────────────────────────
+        cd app
+        pnpm install --frozen-lockfile >/dev/null
+
+        # ── vendored CEF-aware tauri-cli ─────────────────────────────────────
+        TAURI_CLI_ROOT=/tmp/tauri-cli
+        cargo install --root $TAURI_CLI_ROOT --locked \
+          --path src-tauri/vendor/tauri-cef/crates/tauri-cli
+        export PATH="$TAURI_CLI_ROOT/bin:$PATH"
+
+        # ── build the .deb bundle ─────────────────────────────────────────────
+        # tauri runs beforeBuildCommand ("pnpm run build:app") automatically.
+        mkdir -p "$CEF_PATH"
+        cargo tauri build --bundles deb -- --bin OpenHuman
+
+        cd ..
+
+        # ── push to Forgejo generic package registry ──────────────────────────
+        curl -sSf -H "Authorization: token $GIT_AUTH_TOKEN" \
+          -o /usr/local/bin/forgejo-api \
+          https://repo.indexarr.net/indexarr/ops/raw/branch/main/scripts/forgejo-api.sh
+        chmod +x /usr/local/bin/forgejo-api
+        export FORGEJO_TOKEN="$GIT_AUTH_TOKEN"
+
+        DEB_FILE=$(find app/src-tauri/target/release/bundle/deb -name "*.deb" | head -1)
+        DEB_FILENAME=$(basename "$DEB_FILE")
+        SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
+
+        # Forgejo generic packages are immutable; delete the slot first so a
+        # re-run of the same SHA doesn't 409.
+        forgejo-api DELETE \
+          "/api/packages/indexarr/generic/openhuman-deb/$SHORT_SHA/$DEB_FILENAME" \
+          --allow 404 >/dev/null
+
+        forgejo-api PUT \
+          "/api/packages/indexarr/generic/openhuman-deb/$SHORT_SHA/$DEB_FILENAME" \
+          --upload "$DEB_FILE"
+
+        echo "[build-deb] uploaded $DEB_FILENAME at openhuman-deb/$SHORT_SHA"
     when:
       - event: [push, manual]
 
