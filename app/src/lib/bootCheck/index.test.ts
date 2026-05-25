@@ -40,7 +40,9 @@ describe('runBootCheck — local mode', () => {
   it('returns match when ping succeeds, no daemon, versions match', async () => {
     const appVersion = (await import('../../utils/config')).APP_VERSION;
 
+    const configureCoreConnection = vi.fn().mockResolvedValue(undefined);
     const transport = makeTransport({
+      configureCoreConnection,
       callRpc: rpcResponder({
         'core.ping': {},
         'openhuman.service_status': { installed: false, running: false },
@@ -50,6 +52,7 @@ describe('runBootCheck — local mode', () => {
 
     const result = await runBootCheck({ kind: 'local' }, transport);
     expect(result).toEqual({ kind: 'match' });
+    expect(configureCoreConnection).toHaveBeenCalledWith({ kind: 'local' });
   });
 
   it('returns daemonDetected when service_status shows installed=true', async () => {
@@ -154,15 +157,52 @@ describe('runBootCheck — cloud mode', () => {
   it('returns match when cloud core version matches', async () => {
     const appVersion = (await import('../../utils/config')).APP_VERSION;
 
+    const configureCoreConnection = vi.fn().mockResolvedValue(undefined);
     const transport = makeTransport({
+      configureCoreConnection,
+      callRpc: rpcResponder({ 'openhuman.update_version': { result: { version: appVersion } } }),
+    });
+
+    const mode = { kind: 'cloud', url: 'https://core.example.com/rpc', token: 'tok-123' } as const;
+    const result = await runBootCheck(mode, transport);
+    expect(result).toEqual({ kind: 'match' });
+    expect(configureCoreConnection).toHaveBeenCalledWith(mode);
+  });
+
+  it('returns unreachable when cloud host configuration fails', async () => {
+    const transport = makeTransport({
+      configureCoreConnection: vi.fn().mockRejectedValue(new Error('permission denied')),
+      callRpc: vi.fn(),
+    });
+
+    const result = await runBootCheck(
+      { kind: 'cloud', url: 'https://core.example.com/rpc', token: 'tok-123' },
+      transport
+    );
+
+    expect(result.kind).toBe('unreachable');
+    expect(transport.callRpc).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a cloud server origin before configuring the host', async () => {
+    const appVersion = (await import('../../utils/config')).APP_VERSION;
+    const configureCoreConnection = vi.fn().mockResolvedValue(undefined);
+    const transport = makeTransport({
+      configureCoreConnection,
       callRpc: rpcResponder({ 'openhuman.update_version': { result: { version: appVersion } } }),
     });
 
     const result = await runBootCheck(
-      { kind: 'cloud', url: 'https://core.example.com/rpc' },
+      { kind: 'cloud', url: 'https://openhuman.sprooty.com', token: 'tok-123' },
       transport
     );
+
     expect(result).toEqual({ kind: 'match' });
+    expect(configureCoreConnection).toHaveBeenCalledWith({
+      kind: 'cloud',
+      url: 'https://openhuman.sprooty.com/rpc',
+      token: 'tok-123',
+    });
   });
 
   it('returns outdatedCloud when version differs', async () => {

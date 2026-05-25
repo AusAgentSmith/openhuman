@@ -13,10 +13,15 @@
  */
 import debug from 'debug';
 
-import { clearCoreRpcUrlCache } from '../../services/coreRpcClient';
+import { clearCoreRpcTokenCache, clearCoreRpcUrlCache } from '../../services/coreRpcClient';
 import type { CoreMode } from '../../store/coreModeSlice';
 import { APP_VERSION } from '../../utils/config';
-import { storeRpcUrl } from '../../utils/configPersistence';
+import {
+  clearStoredCoreToken,
+  normalizeCoreRpcUrl,
+  storeCoreToken,
+  storeRpcUrl,
+} from '../../utils/configPersistence';
 
 const log = debug('boot-check');
 const logError = debug('boot-check:error');
@@ -42,6 +47,8 @@ export interface BootCheckTransport {
   callRpc: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   /** Invoke a Tauri command. */
   invokeCmd: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+  /** Sync the selected runtime into the Tauri host before any host-side RPC. */
+  configureCoreConnection?: (mode: CoreMode) => Promise<void>;
 }
 
 // The production transport lives in `app/src/services/bootCheckService.ts`
@@ -200,6 +207,21 @@ export async function runBootCheck(
   // ------------------------------------------------------------------
   if (mode.kind === 'local') {
     log('[boot-check] local mode — starting core process');
+    storeRpcUrl('');
+    clearStoredCoreToken();
+    clearCoreRpcUrlCache();
+    clearCoreRpcTokenCache();
+
+    try {
+      await transport.configureCoreConnection?.(mode);
+      log('[boot-check] local mode — Tauri host configured for local core');
+    } catch (err) {
+      logError('[boot-check] local mode — host configuration failed: %o', err);
+      return {
+        kind: 'unreachable',
+        reason: `Failed to configure local core: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
 
     try {
       await invokeCmd<void>('start_core_process', {});
@@ -250,9 +272,9 @@ export async function runBootCheck(
   let safeUrl: string | null = null;
   let safeOrigin: string | null = null;
   try {
-    const parsed = new URL(mode.url);
+    safeUrl = normalizeCoreRpcUrl(mode.url);
+    const parsed = new URL(safeUrl);
     safeOrigin = parsed.origin;
-    safeUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
   } catch {
     // safeUrl/safeOrigin stay null
   }
@@ -262,8 +284,21 @@ export async function runBootCheck(
   }
   log('[boot-check] cloud mode — origin=%s', safeOrigin ?? '<invalid-origin>');
   storeRpcUrl(safeUrl);
+  storeCoreToken(mode.token ?? '');
   clearCoreRpcUrlCache();
-  log('[boot-check] cloud RPC URL stored and cache cleared');
+  clearCoreRpcTokenCache();
+  log('[boot-check] cloud RPC URL/token stored and cache cleared');
+
+  try {
+    await transport.configureCoreConnection?.({ ...mode, url: safeUrl });
+    log('[boot-check] cloud mode — Tauri host configured for remote core');
+  } catch (err) {
+    logError('[boot-check] cloud mode — host configuration failed: %o', err);
+    return {
+      kind: 'unreachable',
+      reason: `Failed to configure cloud core: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 
   const versionResult = await checkVersion(callRpc);
   if (versionResult === 'match') {

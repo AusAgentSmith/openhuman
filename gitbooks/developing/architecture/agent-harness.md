@@ -261,13 +261,13 @@ Interrupts are user-driven; stop hooks are policy-driven. They share the underly
 
 ## Cost accounting
 
-Every provider response carries a `UsageInfo` block - input tokens, output tokens, cached input tokens, and an authoritative `charged_amount_usd` populated by the OpenHuman backend. `TurnCost` sums those across every provider call inside one turn so the harness can:
+Every provider response carries a `UsageInfo` block - input tokens, output tokens, cached input tokens, and a best-effort `charged_amount_usd` when the provider surface can report or estimate it. `TurnCost` sums those across every provider call inside one turn so the harness can:
 
 * Emit per-iteration cost telemetry over the progress channel.
 * Feed the budget stop hook so a runaway turn cuts itself off mid-loop.
 * Log accurate end-of-turn cost lines.
 
-When the backend doesn't surface a charged amount (older builds, providers that don't bill through it), a small per-tier rate table provides a token-rate floor estimate. Direct cost from the backend always wins when available.
+When a provider doesn't surface a charged amount, a small per-tier rate table provides a token-rate floor estimate. Provider-reported cost wins when available.
 
 ## Fork context - KV-cache reuse across the harness
 

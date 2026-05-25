@@ -4,17 +4,17 @@ icon: shield
 
 # Privacy & Security
 
-OpenHuman is designed so that the **memory of your life lives on your machine**. The local SQLite Memory Tree, the Markdown Obsidian vault, your audio buffers, all of that stays under your control. The OpenHuman backend handles things that have to be brokered (LLM calls, OAuth tokens, search proxying), and nothing more.
+OpenHuman is designed so that the **memory of your life lives in the active core workspace you control**. In Local mode that is your desktop workspace. In Cloud mode that is your self-hosted `openhuman-core` server. The closedhuman fork does not use an OpenHuman-hosted product backend for login, LLM calls, OAuth, billing, or integration proxying.
 
 ***
 
 ## Privacy by Design
 
-**The Memory Tree is local.** The SQLite database (`<workspace>/memory_tree/chunks.db`) and the Markdown vault (`<workspace>/wiki/`) live on your machine. The agent reads from them locally; nothing about your raw source data sits on the OpenHuman backend.
+**The Memory Tree is workspace-local.** The SQLite database (`<workspace>/memory_tree/chunks.db`) and the Markdown vault (`<workspace>/wiki/`) live in the active core workspace. The agent reads from that workspace directly; nothing about your raw source data sits on an OpenHuman product backend.
 
-**Integration tokens are held by the backend, not on your laptop.** OAuth tokens are never written to disk in plaintext on your device. The OpenHuman backend brokers each integration request, the core never speaks any third-party API directly.
+**Integration credentials stay out of plaintext config.** Native OAuth tokens and BYO API keys are stored by the core's encrypted `AuthService`, not in `config.toml`. Long-tail Composio provider tokens live in your personal Composio tenant.
 
-**OS-level credential storage.** Sensitive tokens are stored in your platform's secure keychain, macOS Keychain, Windows Credential Manager, Linux Secret Service.
+**Encrypted credential storage.** Sensitive tokens are stored in the core's encrypted `AuthService` credential store. In Cloud mode that store is on the server workspace; in Local mode it is on the desktop workspace.
 
 **No training on your data.** Your conversations, your Memory Tree, and your personal information are never used to train AI models or improve systems.
 
@@ -22,23 +22,23 @@ OpenHuman is designed so that the **memory of your life lives on your machine**.
 
 ***
 
-## What stays on your machine
+## What stays in your workspace
 
 |                                 |                                                                 |
 | ------------------------------- | --------------------------------------------------------------- |
-| **Memory Tree SQLite database** | Local - `<workspace>/memory_tree/chunks.db`.                    |
-| **Obsidian Markdown vault**     | Local - `<workspace>/wiki/`. Yours to read, edit, copy, delete. |
-| **Audio capture buffers**       | Local. Discarded after STT.                                     |
-| **Local model state**           | Local.                                                          |
+| **Memory Tree SQLite database** | `<workspace>/memory_tree/chunks.db` on the active core. |
+| **Obsidian Markdown vault**     | `<workspace>/wiki/`. Yours to read, edit, copy, delete. |
+| **Audio capture buffers**       | Local to the device doing capture; discarded after STT. |
+| **Local model state**           | Local to the configured model runtime. |
 
-## What the OpenHuman backend handles
+## What external services handle
 
 |                                    |                                                                                                                                                                            |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **LLM calls**                      | Proxied through the backend under one subscription, then forwarded to the underlying provider (Anthropic / OpenAI / Google / etc.) per the [model router](model-routing/). |
-| **Web search proxy**               | The native [web search tool](native-tools/web-search.md) calls a backend proxy so you don't carry a search API key.                                                                   |
-| **Integration OAuth & tool proxy** | Token storage and rate-limited request brokering for [118+ integrations](integrations/README.md).                                                                                 |
-| **TTS streaming**                  | Hosted [text-to-speech](native-tools/voice.md) audio streams. Audio is generated and discarded - not retained.                                                                          |
+| **LLM calls**                      | Sent directly from the active core to the user's configured provider (OpenAI / Anthropic / OpenRouter / local OpenAI-compatible runtime) per the [model router](model-routing/). |
+| **Web search**                     | Uses whatever search provider credentials or local configuration the core is given; there is no OpenHuman search proxy in this fork. |
+| **Integration OAuth & tools**      | Native Google/GitHub coverage uses tokens in `AuthService`; long-tail integrations use the user's Composio tenant and API key. |
+| **TTS**                            | Preferred path is local/OpenAI-compatible Kokoro; hosted backend ElevenLabs proxy is effectively dead in this fork. |
 
 ***
 
@@ -68,13 +68,13 @@ Compression and locality together become the privacy architecture.
 
 ## Security
 
-**Encrypted in transit.** All communication between the application and the OpenHuman backend uses TLS. No data travels in plain text.
+**Encrypted in transit.** Cloud-mode desktop clients should connect to the self-hosted core over TLS or a trusted private network. Provider traffic uses each provider's HTTPS endpoint.
 
 **Sandboxed skills.** Each skill runs in its own isolated execution environment with enforced memory and resource limits. Skills cannot access each other's data, the host system's file system, or your credentials.
 
 **Workspace-scoped tools.** The native [filesystem tools](native-tools/coder.md) operate within the workspace the user opens; they do not have ambient access to the rest of the disk.
 
-**Short-lived tokens.** Authentication tokens between the app and the backend are time-limited.
+**Bearer tokens.** Cloud-mode clients authenticate to the self-hosted core with bearer tokens. Treat `core.token` and any device-scoped client token as secrets.
 
 ***
 

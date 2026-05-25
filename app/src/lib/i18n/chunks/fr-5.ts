@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // French (Français) chunk 5/5. Translated from chunks/en-5.ts.
 const fr5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'Une clé API Composio est actuellement stockée sur cet appareil.',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'Clé API Composio',
   'settings.composio.apiKeyStored': 'Clé API stockée',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -11,7 +12,7 @@ const fr5: TranslationMap = {
   'settings.composio.confirmItem2':
     'Re-lier chaque intégration via votre compte Composio personnel',
   'settings.composio.confirmItem3':
-    "Remarque : les déclencheurs Composio (webhooks en temps réel) ne se déclenchent pas encore en mode Direct — uniquement les appels d'outils synchrones",
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'Vous aurez besoin de :',
   'settings.composio.confirmSwitch': 'Je comprends, passer en Direct',
   'settings.composio.confirmTitle': '⚠️ Passage au mode Direct',
@@ -21,10 +22,10 @@ const fr5: TranslationMap = {
     "Composio intègre plus de 250 applications externes en tant qu'outils que votre agent peut appeler. Choisissez comment ces appels d'outils sont routés.",
   'settings.composio.modeDirect': 'Direct (apporte ta propre clé API)',
   'settings.composio.modeDirectDesc':
-    "Les appels vont directement à backend.composio.dev. Souverain / compatible hors ligne. L'exécution des outils fonctionne de manière synchrone ; les webhooks de déclencheurs en temps réel ne sont pas encore routés en mode direct (problème de suivi).",
-  'settings.composio.modeManaged': "Géré (OpenHuman s'en occupe pour toi)",
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    "OpenHuman relaie les appels d'outils via notre backend (recommandé). L'authentification est négociée ; vous ne collez jamais de clé API Composio. Les webhooks sont entièrement routés.",
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'Mode de routage',
   'settings.composio.saveErrorNoKey':
     "Échec de l'enregistrement. Le mode Direct nécessite une clé API non vide.",

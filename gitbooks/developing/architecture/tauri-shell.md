@@ -1,23 +1,23 @@
 ---
-description: The desktop host (`app/src-tauri/`) - Tauri v2 + WebView, IPC, sidecar lifecycle, core bridge.
+description: The desktop host (`app/src-tauri/`) - Tauri v2 + WebView, IPC, local/remote core lifecycle, core bridge.
 icon: desktop
 ---
 
 # Tauri shell (`app/src-tauri/`)
 
-The desktop host for OpenHuman: Tauri v2 + WebView, IPC commands, window management, and bridging to the `openhuman-core` Rust sidecar (core JSON-RPC). It does **not** duplicate the full domain stack; that lives in the repo-root Rust crate (`openhuman_core`, `src/main.rs`).
+The desktop host for OpenHuman: Tauri v2 + WebView, IPC commands, window management, and bridging to the active `openhuman-core` JSON-RPC endpoint. In Local runtime mode the core runs as an in-process tokio task inside the Tauri host. In Cloud runtime mode the host uses a user-configured remote URL + bearer token and does not spawn the embedded core. It does **not** duplicate the full domain stack; that lives in the repo-root Rust crate (`openhuman_core`, `src/main.rs`).
 
 ## Responsibilities
 
 1. **Web UI**. Load the Vite build from `app/dist` (or dev server on port 1420).
 2. **IPC**. Expose a small, explicit set of Tauri commands (see [Commands](#commands)).
-3. **Core lifecycle**. Ensure the `openhuman-core` binary is running (child process and/or service) and proxy JSON-RPC via `core_rpc_relay`.
+3. **Core lifecycle**. Configure Local vs Cloud runtime, start the embedded core only in Local mode, and expose the active core URL/token to frontend services.
 4. **AI prompts on disk**. Resolve bundled `src/openhuman/agent/prompts` from resources / dev cwd for `ai_get_config` / `write_ai_config_file`.
 5. **Window + tray**. Desktop window behavior and system tray (see `lib.rs`).
 
-## Building the sidecar
+## Core packaging
 
-`app/package.json` `core:stage` runs `scripts/stage-core-sidecar.mjs`, which runs `cargo build --bin openhuman-core` at the repo root and copies the binary into `app/src-tauri/binaries/` for Tauri `externalBin`.
+There is no Tauri sidecar binary in current builds. `pnpm core:stage` is a compatibility no-op; Local mode links the repo-root `openhuman` crate into the Tauri host and starts its JSON-RPC server in-process. The repo-root `openhuman-core` CLI binary still exists for Docker/server deployments and manual debugging.
 
 ## Stuck process recovery
 
@@ -32,7 +32,7 @@ Startup recovery skips when `OPENHUMAN_CORE_REUSE_EXISTING=1` is set (so manual 
 
 ### Overview
 
-The **`app/src-tauri`** crate (Rust package **`OpenHuman`**, binary **`OpenHuman`**) is a **desktop-only** host. It embeds the React UI, registers plugins (deep link, opener, OS, notifications, autostart, updater), manages the main window and tray, and **relays JSON-RPC** to the separately built **`openhuman-core`** binary.
+The **`app/src-tauri`** crate (Rust package **`OpenHuman`**, binary **`OpenHuman`**) is a **desktop-only** host. It embeds the React UI, registers plugins (deep link, opener, OS, notifications, autostart, updater), manages the main window and tray, and connects frontend services to the active core JSON-RPC endpoint.
 
 Non-desktop targets fail at compile time (`compile_error!` in `lib.rs`).
 
@@ -42,16 +42,11 @@ Non-desktop targets fail at compile time (`compile_error!` in `lib.rs`).
 app/src-tauri/src/
 ├── lib.rs                 # `run()`, tray/menu actions, plugins, `generate_handler!`, core startup
 ├── main.rs                # Binary entry
-├── core_process.rs        # CoreProcessHandle, spawn/monitor openhuman sidecar
-├── core_rpc.rs            # HTTP client to core JSON-RPC
-├── commands/
-│   ├── mod.rs             # Re-exports
-│   ├── core_relay.rs      # `core_rpc_relay`, service-managed core bootstrap
-│   ├── openhuman.rs       # Daemon host config, systemd-style service helpers
-│   └── window.rs          # show/hide/minimize/close window
-└── utils/
-    ├── mod.rs
-    └── dev_paths.rs       # Resolve bundled AI prompts paths
+├── core_process.rs        # CoreProcessHandle, local embedded core lifecycle
+├── core_rpc.rs            # Active core URL/token state + authenticated HTTP helpers
+├── cdp/                   # Chrome DevTools Protocol helpers for CEF scanners
+├── *_scanner/             # Provider scanner modules
+└── webview_accounts/      # Third-party account windows and native event plumbing
 ```
 
 There is **no** `src-tauri/src/services/session_service.rs` in this tree; session semantics are handled in the web layer + backend + core as applicable.
@@ -59,13 +54,13 @@ There is **no** `src-tauri/src/services/session_service.rs` in this tree; sessio
 ### Data flow: UI → core
 
 ```
-React (invoke)
-    → core_rpc_relay { method, params, serviceManaged? }
-        → core_rpc::call HTTP POST to OPENHUMAN_CORE_RPC_URL
-            → openhuman binary (src/bin/openhuman.rs → core_server)
+React services/coreRpcClient
+    → resolve URL/token from stored runtime preference or Tauri commands
+        → HTTP POST <active-core-url>
+            → Local embedded core or remote openhuman-core server
 ```
 
-`CoreProcessHandle` in `core_process.rs` starts or waits for the sidecar; `commands/core_relay.rs` optionally ensures a **service-managed** core is running before relaying.
+`BootCheckGate` drives runtime selection. For Cloud mode it stores the URL/token, calls `configure_core_rpc_connection`, and the Tauri host shuts down/skips the embedded core. For Local mode it clears remote credentials, calls `configure_core_rpc_connection` with no URL, then invokes `start_core_process`.
 
 ### Window and tray behavior
 
@@ -103,11 +98,15 @@ All commands are registered in **`app/src-tauri/src/lib.rs`** inside `tauri::gen
 | `ai_refresh_config`    | Same read path as `ai_get_config` (refresh hook)                                             |
 | `write_ai_config_file` | Write a single `.md` under repo `src/openhuman/agent/prompts` (dev / safe filename checks)                |
 
-### Core JSON-RPC relay
+### Core JSON-RPC commands
 
-| Command          | Purpose                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `core_rpc_relay` | Body: `{ method, params?, serviceManaged? }` → forwards to local **`openhuman-core`** HTTP JSON-RPC (`core_rpc.rs`) |
+| Command | Purpose |
+| --- | --- |
+| `core_rpc_url` | Return the active core RPC URL. Local mode is loopback; Cloud mode is the configured remote `/rpc` URL. |
+| `core_rpc_token` | Return the bearer token for the active core. Local mode uses the per-launch embedded token; Cloud mode uses the configured remote token. |
+| `configure_core_rpc_connection` | Set Cloud mode URL/token or clear back to Local mode. Cloud mode stops/skips the embedded core. |
+| `start_core_process` | Start the embedded local core. No-op when Cloud mode is configured. |
+| `restart_core_process` | Restart the embedded local core. Returns an error in Cloud mode. |
 
 Use **`app/src/services/coreRpcClient.ts`** (`callCoreRpc`) from the frontend.
 
@@ -152,19 +151,16 @@ From **`screen_capture/mod.rs`**. Backs the in-page `getDisplayMedia` shim in `w
 
 ### Removed / not present
 
-The following **do not** exist in the current `generate_handler!` list: `exchange_token`, `get_auth_state`, `socket_connect`, `start_telegram_login`. Authentication and sockets are handled in the **React** app and **core** process, not via these IPC names.
+The following **do not** exist in the current `generate_handler!` list: `core_rpc_relay`, `exchange_token`, `get_auth_state`, `socket_connect`, `start_telegram_login`. Authentication, sockets, and product JSON-RPC are handled in the **React** services layer and the **core** process, not via these IPC names.
 
 ### Example: core RPC
 
 ```typescript
-import { invoke } from "@tauri-apps/api/core";
+import { callCoreRpc } from "../../services/coreRpcClient";
 
-const result = await invoke("core_rpc_relay", {
-  request: {
-    method: "your.rpc.method",
-    params: { foo: "bar" },
-    serviceManaged: false,
-  },
+const result = await callCoreRpc({
+  method: "your.rpc.method",
+  params: { foo: "bar" },
 });
 ```
 
@@ -175,23 +171,19 @@ _See `app/src-tauri/src/lib.rs` for the authoritative list._
 
 ## Core bridge & helpers (`app/src-tauri`)
 
-This document replaces the old “SessionService / SocketService” split. The Tauri crate **does not** embed a duplicate Socket.io server or Telegram client; instead it focuses on **process management** and **HTTP JSON-RPC** to the **`openhuman-core`** binary.
+This document replaces the old “SessionService / SocketService” split. The Tauri crate **does not** embed a duplicate Socket.io server or Telegram client; instead it focuses on window/process management and authenticated HTTP JSON-RPC to the active core endpoint.
 
 ### `CoreProcessHandle` (`core_process.rs`)
 
-- Resolves the **`openhuman-core`** executable (staged under `binaries/` or `PATH` / dev layout).
-- Starts or attaches to the core process and exposes its RPC URL (`OPENHUMAN_CORE_RPC_URL`).
+- Starts the embedded core JSON-RPC server in Local mode.
+- Skips startup when Cloud mode is configured.
 - Used during app setup in `lib.rs` (`app.manage(core_handle)`).
 
 ### `core_rpc` (`core_rpc.rs`)
 
-- HTTP client for the core’s JSON-RPC surface (localhost).
-- Used by **`core_rpc_relay`** to forward `method` + `params` from the frontend.
-
-### `commands/core_relay.rs`
-
-- **`core_rpc_relay`**. ensures the core is running (in-process handle or **service-managed** path), then calls `core_rpc`.
-- **`ensure_service_managed_core_running`**. bootstraps systemd/launchd-style service when RPC is down (platform-specific behavior inside core CLI).
+- Owns active core connection state: Local vs Cloud.
+- Normalizes server-origin URLs to `/rpc`.
+- Applies `Authorization: Bearer <token>` for Tauri-side HTTP calls, including scanner/native event paths.
 
 ### `commands/openhuman.rs`
 

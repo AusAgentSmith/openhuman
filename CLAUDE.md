@@ -40,7 +40,7 @@ Commands assume the **repo root**; `pnpm dev` delegates to the `app` workspace. 
 
 - **Shipped product**: desktop — Windows, macOS, Linux. Single-user local install.
 - **Tauri host** (`app/src-tauri`): desktop-only. No Android/iOS branches.
-- **Core runs in-process** inside the Tauri host as a tokio task — there is **no sidecar binary anymore** (removed in upstream PR #1061). The lifecycle is owned by `core_process::CoreProcessHandle` in `app/src-tauri/src/core_process.rs`; on Cmd+Q the core dies with the GUI. Frontend RPC still goes over HTTP (`core_rpc_relay` + `core_rpc` client) to `http://127.0.0.1:<port>/rpc`, authenticated with a per-launch bearer in `OPENHUMAN_CORE_TOKEN`. Set `OPENHUMAN_CORE_REUSE_EXISTING=1` to attach to an externally-started `openhuman-core` process (e.g. a debug harness).
+- **Core runtime is selected at first launch**. Local mode runs the core in-process inside the Tauri host as a tokio task — there is **no sidecar binary anymore** (removed in upstream PR #1061). Cloud mode connects the desktop to a user-supplied remote `openhuman-core` URL + bearer token and skips/stops the embedded core. The local lifecycle is owned by `core_process::CoreProcessHandle` in `app/src-tauri/src/core_process.rs`; active endpoint/token selection is owned by `app/src-tauri/src/core_rpc.rs` and the `configure_core_rpc_connection` IPC command. `OPENHUMAN_CORE_RPC_URL` can seed a remote endpoint in dev, but installed artifacts should use the BootCheck runtime picker.
 - **No OpenHuman product backend.** The fork doesn't connect to `api.openhuman.ai` for anything — auth, billing, voice, OAuth handoff, LLM inference. Every workload that used to proxy through it now either runs locally (Ollama / LM Studio / Kokoro on mlx-audio) or against the user's own cloud API key configured under Settings → AI.
 - **Auto-updater disabled.** `tauri-plugin-updater` is in deps but `tauri.conf.json` has `updater.active: false`; the `<AppUpdatePrompt />` mount is removed from `App.tsx`. The closedhuman fork doesn't consume upstream release feeds. Re-enable path documented in commit `7ebfc39a`.
 
@@ -97,6 +97,10 @@ Composio is now the canonical integration broker for everything the deleted back
 
 - **`composio.mode = "direct"`** (default in the fork): hits Composio v3 against the user's personal tenant (`backend.composio.dev/api/v3/*`) with their own API key. `composio_authorize`, `composio_execute`, `composio_sync`, `get_user_profile`, `delete_connection`, `refresh_all_identities`, trigger CRUD, and trigger reads (`list_triggers`, `list_available_triggers`) all route through this.
 - **`composio.mode = "backend"`** (legacy): the upstream tinyhumansai backend proxy. Not usable in the closedhuman fork.
+
+**GUI setup**: users paste the Composio API key at **Settings → Developer Options → Composio Routing (Direct Mode)** (`#/settings/composio-routing`). The key is stored by `AuthService` under `provider:composio-direct` for the active core: server workspace in Cloud mode, local workspace in Local mode.
+
+**Connect flow**: `openhuman.composio_authorize` delegates to `direct_authorize` → `ComposioTool::get_connection_url`. Direct mode looks up `GET /api/v3/auth_configs?toolkit_slug=<slug>`; if none exists, it creates one with `POST /api/v3/auth_configs` and `{"toolkit":{"slug":"<slug>"}}`, extracts the returned auth-config id, then calls `POST /api/v3/connected_accounts/link`. Users should not need to pre-create managed auth configs for Gmail, Discord, or other managed-auth toolkits. Composio v2 connect now returns HTTP 410 and is only a legacy fallback/error context.
 
 **Trigger delivery in direct mode** uses an embedded ngrok tunnel for the webhook URL (free static `<id>.ngrok-free.dev` domain). The receiver lives in `src/openhuman/composio/webhook_receiver/` and does Svix-style HMAC verification (`webhook-id` + `webhook-timestamp` + `webhook-signature` headers), parses the Composio v3 envelope, and publishes `DomainEvent::ComposioTriggerReceived` to the global event bus. Downstream pipeline (`trigger_triage` → `trigger_reactor` sub-agent) is unchanged.
 
@@ -178,6 +182,7 @@ PRs must meet **≥ 80% coverage on changed lines**. Enforced by [`.github/workf
   - `[local_ai]` — local-Ollama + Kokoro + per-workload provider routing (`chat_provider`, `reasoning_provider`, etc.).
   - `[[cloud_providers]]` — BYO API-key rows. `slug`, `endpoint`, `auth_style` (Bearer / Anthropic / None). API keys are NOT stored here; they live in `auth-profiles.json` via `AuthService` under `provider:<slug>`.
   - `[composio]` — `mode = "direct"` + `api_key_provider = "composio-direct"`.
+  - `[composio.webhook]` — direct-mode trigger receiver config (`local_receiver_enabled`, `local_receiver_port`, `ngrok_domain`, persisted subscription id). ngrok authtoken and webhook signing secret live in `AuthService`.
   - `[memory_tree]` — extractor/summariser endpoints, embedder model.
 
 **Frontend config** is centralized in [`app/src/utils/config.ts`](app/src/utils/config.ts). Read `VITE_*` there and re-export — **never** `import.meta.env` directly elsewhere.
@@ -240,9 +245,9 @@ bash scripts/test-rust-with-mock.sh --test json_rpc_e2e
 
 No `UserProvider` / `AIProvider` / `SkillProvider` — auth and core snapshot live in `CoreStateProvider`, fetched via `fetchCoreAppSnapshot()` RPC (auth tokens are NOT in redux-persist; they live in the in-process core).
 
-**State** (`store/`): Redux Toolkit slices — `accounts`, `channelConnections`, `chatRuntime`, `coreMode`, `deepLinkAuth`, `mascot`, `notification`, `providerSurface`, `socket`, `thread`. Persisted slices via redux-persist. Prefer Redux over ad-hoc `localStorage` (exception: ephemeral UI state like upsell dismiss flags).
+**State** (`store/`): Redux Toolkit slices — `accounts`, `channelConnections`, `chatRuntime`, `coreMode`, `deepLinkAuth`, `mascot`, `notification`, `providerSurface`, `socket`, `thread`. Persisted slices via redux-persist. Prefer Redux over ad-hoc `localStorage` (exceptions: pre-login runtime picker keys `openhuman_core_rpc_url`, `openhuman_core_rpc_token`, `openhuman_core_mode`, plus ephemeral UI state like upsell dismiss flags).
 
-**Services** (`services/`): singletons — `apiClient`, `socketService`, `coreRpcClient` + `coreCommandClient` (HTTP bridge to in-process core via Tauri IPC), `chatService`, `analytics`, `notificationService`, `webviewAccountService`, `daemonHealthService`, plus domain `api/*` clients.
+**Services** (`services/`): singletons — `apiClient`, `socketService`, `coreRpcClient` + `coreCommandClient` (HTTP bridge to the active core endpoint: local embedded or configured remote), `chatService`, `analytics`, `notificationService`, `webviewAccountService`, `daemonHealthService`, plus domain `api/*` clients.
 
 **MCP** (`lib/mcp/`): JSON-RPC transport, validation, types over Socket.io.
 
@@ -256,9 +261,9 @@ No `UserProvider` / `AIProvider` / `SkillProvider` — auth and core snapshot li
 
 Thin desktop host. Top-level modules: `core_process`, `core_rpc`, `cdp`, `cef_preflight`, `cef_profile`, `dictation_hotkeys`, `file_logging`, `mascot_native_window`, `native_notifications`, `notification_settings`, `process_kill`, `process_recovery`, `screen_capture`, `window_state`, plus the per-provider scanner modules (`discord_scanner`, `gmessages_scanner`, `imessage_scanner`, `meet_scanner`, `slack_scanner`, `telegram_scanner`, `whatsapp_scanner`), `meet_audio` / `meet_call` / `meet_video`, `fake_camera`, `webview_accounts`, `webview_apis`.
 
-**Core lifecycle**: `core_process::CoreProcessHandle` spawns the JSON-RPC server as an in-process tokio task and authenticates inbound RPC with a per-launch hex bearer (`OPENHUMAN_CORE_TOKEN`). On stale-listener detection (#1130) the handle revalidates the PID before force-killing so PID reuse can't kill an unrelated process. `restart_core_process` / `start_core_process` Tauri commands let the frontend cycle it for updates.
+**Core lifecycle**: local mode uses `core_process::CoreProcessHandle` to spawn the JSON-RPC server as an in-process tokio task and authenticate inbound RPC with a per-launch hex bearer (`OPENHUMAN_CORE_TOKEN`). Cloud mode uses `core_rpc::configure_remote_connection` to store the remote URL/token in process env for Tauri-side callers and shuts down/skips the embedded core. On stale-listener detection (#1130) the local handle revalidates the PID before force-killing so PID reuse can't kill an unrelated process. `configure_core_rpc_connection`, `start_core_process`, and `restart_core_process` are the frontend lifecycle controls; `restart_core_process` is local-only.
 
-Registered IPC (see [`gitbooks/developing/architecture/tauri-shell.md`](gitbooks/developing/architecture/tauri-shell.md)) includes `greet`, `write_ai_config_file`, `ai_get_config`, `ai_refresh_config`, `core_rpc_relay`, `core_rpc_token`, `start_core_process`, `restart_core_process`, window commands, and `openhuman_*` daemon helpers. Always use `invoke('core_rpc_relay', ...)` for in-process RPC (avoids CORS preflight that `fetch()` would trigger).
+Registered IPC (see [`gitbooks/developing/architecture/tauri-shell.md`](gitbooks/developing/architecture/tauri-shell.md)) includes `greet`, `write_ai_config_file`, `ai_get_config`, `ai_refresh_config`, `core_rpc_url`, `core_rpc_token`, `configure_core_rpc_connection`, `start_core_process`, `restart_core_process`, window commands, and `openhuman_*` daemon helpers. Frontend product RPC should go through `services/coreRpcClient` so the stored cloud URL/token and Tauri-provided local URL/token stay coherent.
 
 The updater Tauri commands (`check_app_update`, `download_app_update`, `install_app_update`, `apply_app_update`) are still registered but error with "updater plugin not initialized" because `tauri.conf.json` has `updater.active: false`. They stay in the tree so the future re-enable is a config flip rather than a code restore.
 
@@ -389,7 +394,7 @@ Specify → prove in Rust → prove over RPC → surface in the UI → test.
 1. **Specify against the current codebase** — ground in existing domains, controller/registry patterns, JSON-RPC naming (`openhuman.<namespace>_<function>`). No parallel architectures.
 2. **Implement in Rust** — domain logic under `src/openhuman/<domain>/`, schemas + handlers in the registry, unit tests until correct in isolation.
 3. **JSON-RPC E2E** — extend [`tests/json_rpc_e2e.rs`](tests/json_rpc_e2e.rs) / [`scripts/test-rust-with-mock.sh`](scripts/test-rust-with-mock.sh) so RPC methods match what the UI will call.
-4. **UI in Tauri app** — React screens/state using `core_rpc_relay` / `coreRpcClient`. Keep rules in the core.
+4. **UI in Tauri app** — React screens/state using `coreRpcClient` against the active Local/Cloud core endpoint. Keep rules in the core.
 5. **App unit tests** — Vitest.
 6. **App E2E** — desktop specs for user-visible flows.
 
@@ -414,6 +419,6 @@ Specify → prove in Rust → prove over RPC → surface in the UI → test.
 - **Vendored CEF-aware `tauri-cli`**: runtime is CEF; only the vendored CLI at `app/src-tauri/vendor/tauri-cef/crates/tauri-cli` bundles Chromium into `Contents/Frameworks/`. Stock `@tauri-apps/cli` produces a broken bundle (panic in `cef::library_loader::LibraryLoader::new`). `pnpm dev:app` and all `cargo tauri` scripts call `pnpm tauri:ensure` which runs [`scripts/ensure-tauri-cli.sh`](scripts/ensure-tauri-cli.sh). If overwritten, reinstall with `cargo install --locked --path app/src-tauri/vendor/tauri-cef/crates/tauri-cli`.
 - **macOS deep links**: often require a built `.app` bundle, not just `tauri dev`.
 - **Tauri environment guard**: use `isTauri()` (from `app/src/services/webviewAccountService.ts`) or wrap `invoke(...)` in `try/catch`; do not check `window.__TAURI__` directly — it is not present at module load and bypasses the established wrapper contract.
-- **Core is in-process** (no sidecar): `core_rpc` reaches the embedded server at `http://127.0.0.1:<port>/rpc` with bearer auth via `OPENHUMAN_CORE_TOKEN`. `scripts/stage-core-sidecar.mjs` no longer exists; `pnpm core:stage` is a no-op echo. To run the core standalone for debugging, use `./target/debug/openhuman-core serve` (token at `{workspace}/core.token`, default `~/.openhuman-staging/core.token` under `OPENHUMAN_APP_ENV=staging`).
+- **Core runtime modes**: Local mode reaches the embedded server at `http://127.0.0.1:<port>/rpc` with bearer auth via a per-launch `OPENHUMAN_CORE_TOKEN`. Cloud mode reaches the user-configured remote `/rpc` endpoint with the pasted bearer token; `CoreProcessHandle::ensure_running` returns without spawning locally. `scripts/stage-core-sidecar.mjs` no longer exists; `pnpm core:stage` is a no-op echo. To run the core standalone for debugging, use `./target/debug/openhuman-core serve` (token at `{workspace}/core.token`, default `~/.openhuman-staging/core.token` under `OPENHUMAN_APP_ENV=staging`) and connect through the Cloud runtime picker or `OPENHUMAN_CORE_RPC_URL` + `OPENHUMAN_CORE_TOKEN` in dev.
 - **macOS code signing**: hardcoded Apple Signing Identity is no longer set in `pnpm dev:app`. Dev builds run unsigned; set `APPLE_SIGNING_IDENTITY` in your environment if you need a signed dev build.
 - **ngrok for Composio trigger delivery**: the embedded webhook receiver needs an ngrok account + static `<id>.ngrok-free.dev` domain on the free plan. Paste authtoken + domain in Settings → Triggers; the receiver auto-starts at boot when both are present.

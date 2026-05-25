@@ -156,15 +156,30 @@ pub fn read_chunk_body(
         }
     }
 
-    let pointers = get_chunk_content_pointers(config, chunk_id)?.ok_or_else(|| {
-        anyhow::anyhow!(
-            "[content_store::read] no content_path or raw_refs for chunk_id={} \
-             (pre-MD-migration row?)",
-            chunk_id
-        )
-    })?;
+    let pointers = match get_chunk_content_pointers(config, chunk_id)? {
+        Some(pointers) => pointers,
+        None => {
+            if let Some(body) =
+                read_chunk_body_from_sql_preview(config, chunk_id, "no content_path or raw_refs")?
+            {
+                return Ok(body);
+            }
+            return Err(anyhow::anyhow!(
+                "[content_store::read] no content_path or raw_refs for chunk_id={} \
+                 (pre-MD-migration row?)",
+                chunk_id
+            ));
+        }
+    };
     let (rel_path, expected_sha256) = pointers;
     if rel_path.is_empty() {
+        if let Some(body) = read_chunk_body_from_sql_preview(
+            config,
+            chunk_id,
+            "empty content_path and no raw_refs",
+        )? {
+            return Ok(body);
+        }
         return Err(anyhow::anyhow!(
             "[content_store::read] empty content_path and no raw_refs for chunk_id={} \
              — chunk has no resolvable body source",
@@ -216,6 +231,30 @@ pub fn read_chunk_body(
 }
 
 use anyhow::Context as _;
+
+/// Last-resort compatibility reader for legacy/broken rows that have
+/// neither a chunk file nor raw archive refs. For current MD-content rows
+/// this is only a preview, but it lets extraction jobs drain instead of
+/// retrying forever.
+fn read_chunk_body_from_sql_preview(
+    config: &crate::openhuman::config::Config,
+    chunk_id: &str,
+    reason: &str,
+) -> anyhow::Result<Option<String>> {
+    let preview =
+        crate::openhuman::memory::tree::store::get_chunk_content_preview(config, chunk_id)?;
+    let Some(preview) = preview else {
+        return Ok(None);
+    };
+    if preview.trim().is_empty() {
+        return Ok(None);
+    }
+    log::warn!(
+        "[content_store::read] {reason} for chunk_id={} — falling back to SQL content preview",
+        chunk_id
+    );
+    Ok(Some(preview))
+}
 
 /// Reconstruct a chunk body by reading the raw archive files it
 /// points at and joining their contents with `"\n\n"` — the same
@@ -339,8 +378,10 @@ pub fn read_summary_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::openhuman::config::Config;
     use crate::openhuman::memory::tree::content_store::atomic::{sha256_hex, write_if_new};
     use crate::openhuman::memory::tree::content_store::compose::compose_chunk_file;
+    use crate::openhuman::memory::tree::store;
     use crate::openhuman::memory::tree::types::{Chunk, Metadata, SourceKind};
     use chrono::TimeZone;
     use tempfile::TempDir;
@@ -364,6 +405,45 @@ mod tests {
             created_at: ts,
             partial_message: false,
         }
+    }
+
+    fn test_config() -> (TempDir, Config) {
+        let tmp = TempDir::new().expect("tempdir");
+        let mut cfg = Config::default();
+        cfg.workspace_dir = tmp.path().to_path_buf();
+        (tmp, cfg)
+    }
+
+    fn legacy_chunk() -> Chunk {
+        let ts = chrono::Utc.timestamp_millis_opt(1_700_000_000_000).unwrap();
+        Chunk {
+            id: "legacy-email-chunk".to_string(),
+            content: "legacy sql body".to_string(),
+            metadata: Metadata {
+                source_kind: SourceKind::Email,
+                source_id: "gmail:alice@example.com|bob@example.com".to_string(),
+                owner: "gmail-sync:test".to_string(),
+                timestamp: ts,
+                time_range: (ts, ts),
+                tags: vec!["gmail".to_string()],
+                source_ref: None,
+            },
+            token_count: 3,
+            seq_in_source: 0,
+            created_at: ts,
+            partial_message: false,
+        }
+    }
+
+    #[test]
+    fn read_chunk_body_falls_back_to_sql_content_for_legacy_rows() {
+        let (_tmp, cfg) = test_config();
+        let chunk = legacy_chunk();
+        store::upsert_chunks(&cfg, std::slice::from_ref(&chunk)).unwrap();
+
+        let body = read_chunk_body(&cfg, &chunk.id).unwrap();
+
+        assert_eq!(body, "legacy sql body");
     }
 
     #[test]

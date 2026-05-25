@@ -1,8 +1,8 @@
 //! Tests for the 1 → 2 AI-provider unification migration.
 
 use super::*;
-use crate::openhuman::config::Config;
 use crate::openhuman::config::schema::{LocalAiConfig, LocalAiUsage};
+use crate::openhuman::config::Config;
 
 fn make_legacy_config_local_on() -> Config {
     let mut c = Config::default();

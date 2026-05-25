@@ -39,10 +39,10 @@
 //! - Migrates `inference_url` into a `Custom` cloud provider entry when the
 //!   URL doesn't look like the OpenHuman backend.
 
-use crate::openhuman::config::Config;
 use crate::openhuman::config::schema::cloud_providers::{
-    AuthStyle, CloudProviderCreds, generate_provider_id,
+    generate_provider_id, AuthStyle, CloudProviderCreds,
 };
+use crate::openhuman::config::Config;
 
 /// Counters returned by [`run`] for diagnostics. Logged at INFO once per
 /// successful migration run.

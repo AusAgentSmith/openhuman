@@ -239,6 +239,32 @@ describe('BootCheckGate — picker (unset mode)', () => {
       expect.any(Object)
     );
   });
+
+  it('normalizes a pasted cloud server origin to the /rpc endpoint', async () => {
+    mockRunBootCheck.mockResolvedValue({ kind: 'match' });
+
+    renderGate();
+    fireEvent.click(screen.getByText('Run on the Cloud (Complex)'));
+    fireEvent.change(screen.getByPlaceholderText(/https:\/\/core\.example\.com/), {
+      target: { value: 'https://openhuman.sprooty.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Bearer token/i), {
+      target: { value: 'tok-1234' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-content')).toBeInTheDocument();
+    });
+    expect(mockRunBootCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'cloud',
+        url: 'https://openhuman.sprooty.com/rpc',
+        token: 'tok-1234',
+      }),
+      expect.any(Object)
+    );
+  });
 });
 
 describe('BootCheckGate — picker test connection', () => {

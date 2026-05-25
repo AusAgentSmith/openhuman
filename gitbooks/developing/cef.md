@@ -117,7 +117,7 @@ The plumbing is already there. A `@openhuman/browser_task` skill could spin up a
 
 ### Headless CEF for server-side replay
 
-The same scanner pattern (long-lived WebSocket → IDB walk + DOM snapshot) works without a UI. Headless CEF in the core sidecar could replay sessions on a schedule, useful for users who host the core in the cloud and want auto-fetch from sources that don't expose a clean OAuth API.
+The same scanner pattern (long-lived WebSocket → IDB walk + DOM snapshot) works without a UI. Headless CEF in a future server-side core worker could replay sessions on a schedule, useful for users who host the core in the cloud and want auto-fetch from sources that don't expose a clean OAuth API.
 
 ### Privacy hooks at the browser-process layer
 

@@ -19,7 +19,11 @@ Once the Tauri window opens:
 
 1. Go to **Settings → AI** → add your OpenAI key under the seeded
    `openai` provider entry.
-2. *(Optional)* Run the loopback OAuth CLI for Google + GitHub if you
+2. *(Optional)* Go to **Settings → Developer Options → Composio Routing
+   (Direct Mode)** and paste your Composio API key for long-tail
+   integrations such as Discord, Slack, Notion, and non-native Gmail
+   actions.
+3. *(Optional)* Run the loopback OAuth CLI for Google + GitHub if you
    want native Gmail/Calendar/Drive/GitHub tool execution.
 
 You can do this entirely from the UI. The CLI flows below are the
@@ -164,7 +168,7 @@ docker logs openhuman-core
 | **Default LLM** | OpenAI Responses API (`/v1/responses`) with `gpt-5.4` and `reasoning.effort = "medium"`. Set via `DEFAULT_MODEL = "openai:gpt-5.4"`. |
 | **Auth storage** | Encrypted-on-disk `AuthService` (`<workspace>/auth-profiles.json`). |
 | **OAuth providers** | Google + GitHub via the loopback flow (`127.0.0.1:<random>/oauth/callback`). Never touches a third party. |
-| **Composio backend** | Gone. Native dispatch handles 9+ tool slugs (Gmail / Calendar / Drive / GitHub); unknown slugs hard-error with a pointer to `src/openhuman/oauth/native_dispatch.rs`. |
+| **Composio direct mode** | Backend proxy is gone. Composio v3 calls use the user's own API key from `AuthService`; `composio_authorize` lazily creates missing managed auth configs before opening Composio's hosted OAuth URL. Native dispatch still bypasses Composio for covered Gmail / Calendar / Drive / GitHub slugs. |
 | **App login** | Removed. `/` redirects straight to `/home`. |
 
 ---
@@ -237,7 +241,45 @@ cargo build --bin openhuman-core
 
 The key lands in the same encrypted `auth-profiles.json` the UI uses.
 
-## Step 4 — *(Optional)* Connect Google + GitHub natively
+## Step 4 — *(Optional)* Configure Composio direct mode
+
+You only need this if you want the Skills/Integrations cards or the agent
+to use Composio-managed long-tail toolkits. Native Google/GitHub actions
+covered by `src/openhuman/oauth/native_dispatch.rs` can run without
+Composio, but Discord, Slack, Notion, Jira, and other long-tail toolkits
+need a Composio API key.
+
+From the Tauri window:
+
+1. Open **Settings → Developer Options**.
+2. Open **Composio Routing (Direct Mode)**.
+3. Select **Direct (bring your own API key)**.
+4. Paste the API key from your Composio account and click **Save**.
+
+The key lands in the active core's encrypted `AuthService` under
+`provider:composio-direct`: on the server workspace in Cloud mode, or in
+the local workspace in Local mode. It is not written to `config.toml`.
+
+After the key is saved, open the Skills/Integrations grid and click
+**Connect** on a toolkit. The core calls Composio v3 directly. If the
+toolkit has no v3 auth config in your tenant yet, the core creates a
+managed auth config first and then opens Composio's hosted OAuth URL. The
+old v2 fallback returns HTTP 410 and is only kept for compatibility with
+older error paths; a fresh direct-mode connection should not require any
+manual "create auth config" dashboard step.
+
+For real-time triggers, also open **Settings → Developer Options →
+Composio Triggers (Direct Mode)** and configure:
+
+- ngrok static domain, e.g. `abc-123.ngrok-free.dev`
+- ngrok authtoken
+- local receiver enabled
+
+The receiver HMAC-verifies Composio's v3 webhook envelope and publishes
+`DomainEvent::ComposioTriggerReceived` into the same triage/reactor
+pipeline as the rest of the agent runtime.
+
+## Step 5 — *(Optional)* Connect Google + GitHub natively
 
 You only need this if you want the agent to call Gmail / Calendar /
 Drive / GitHub tools. Without it, the LLM still works fine for plain
@@ -296,18 +338,21 @@ Adding more slugs is a single-arm change in
 `src/openhuman/oauth/native_dispatch.rs` plus a typed function in
 `src/openhuman/providers_native/`.
 
-## Step 5 — Smoke-test
+## Step 6 — Smoke-test
 
 From the Tauri window:
 
 - Open the chat panel and send "hi" — confirm the response comes back.
-- *(If you did Step 4)* ask the agent to "list my next 3 calendar
+- *(If you did Step 4)* connect a Composio-backed toolkit such as Discord
+  or Gmail from the Skills/Integrations grid. Expected: a hosted Composio
+  OAuth URL opens; the core logs `openhuman.composio_authorize -> ok`.
+- *(If you did Step 5)* ask the agent to "list my next 3 calendar
   events" or "create a GitHub issue in `<owner>/<repo>` titled foo" —
   confirm it executes via native dispatch (logs prefixed
   `[bearer]` / `[oauth]` in `target/debug-logs/`).
 - Try an unwired slug (e.g. `NOTION_SEARCH`) — confirm the agent
-  surfaces the `"no native dispatcher"` error verbatim rather than
-  silently hitting any backend.
+  routes through Composio direct mode when a Composio API key is present,
+  or surfaces a clear missing-Composio-key error when it is not.
 
 ---
 
@@ -345,12 +390,23 @@ has access to (e.g. `"openai:gpt-5"`, `"openai:gpt-4.1"`), rebuild, and
 restart. The reasoning-effort field auto-skips for non-reasoning
 families.
 
+### "[composio-direct] authorize failed: No auth config found"
+
+That message means you are running an older core. Current direct mode
+creates a managed v3 auth config lazily when a toolkit such as Gmail or
+Discord has none in your Composio tenant, then requests the hosted connect
+URL. Rebuild/restart the desktop or server core and try the connection
+again. If the message changes to `auth config create failed`, Composio
+rejected the API key or toolkit slug; check **Settings → Developer
+Options → Composio Routing (Direct Mode)** and verify the key still works
+in your Composio account.
+
 ---
 
 ## What's NOT working yet
 
 Frontend pages that were tightly coupled to backend-only domains
-(rewards, invites, billing, team, Composio toolkit catalog) still
+(rewards, invites, billing, team) still
 render in the app but their backing RPCs error out. They're harmless
 — just don't expect rewards or billing to do anything. Phase 6 of
 `tasks/todo.md` covers replacing or deleting each.

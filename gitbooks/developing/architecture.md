@@ -17,11 +17,11 @@ OpenHuman is a cross-platform communication and automation platform purpose-buil
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **`app/`**              | Yarn workspace **`openhuman-app`**: Vite/React UI (`app/src/`), Tauri shell (`app/src-tauri/`), Vitest tests                                                       |
 | **Repo root `src/`**    | Rust **`openhuman_core`** library + **`openhuman-core`** CLI binary - core server, JSON-RPC, first-class JavaScript runtime (`src/openhuman/javascript/`) backed by a managed Node.js implementation, channels, memory, etc. |
-| **`Cargo.toml`** (root) | Builds the `openhuman-core` binary (`cargo build --bin openhuman-core`) staged into `app/src-tauri/binaries/` for the desktop bundle                                 |
+| **`Cargo.toml`** (root) | Builds the `openhuman` library used by the Tauri host and the `openhuman-core` CLI binary used for server/Docker deployments and debugging                                 |
 | **`skills/`**           | Skill packages consumed by the runtime                                                                                                                             |
 | **`docs/`**             | This book + per-tree guides (`docs/src/`, `docs/src-tauri/`)                                                                                                       |
 
-The desktop app **WebView** loads the UI from `app/`; heavy RPC and skills run in the **`openhuman-core`** process, reachable over HTTP from the Tauri host (`core_rpc_relay`).
+The desktop app **WebView** loads the UI from `app/`; heavy RPC and skills run in the active Rust core. Local mode embeds that core in the Tauri host. Cloud mode connects to a remote `openhuman-core` server over authenticated HTTP JSON-RPC.
 
 ---
 
@@ -78,7 +78,7 @@ Tauri v2 compiles the Rust core into native binaries per platform, embedding the
      (Socket.io Server)        (Telegram, etc.)
 ```
 
-The frontend communicates with the **openhuman** Rust core in two ways: **Tauri IPC** for a small set of shell commands (windows, AI file helpers, **`core_rpc_relay`**) and **HTTP JSON-RPC** to the core process for business logic and skills. The core owns persistent connections where applicable, cryptographic work for memory/features, and **QuickJS** sandboxed skill execution.
+The frontend communicates with the **openhuman** Rust core in two ways: **Tauri IPC** for a small set of shell commands (windows, AI file helpers, runtime selection) and **HTTP JSON-RPC** through `services/coreRpcClient` for business logic and skills. The core owns persistent connections where applicable, cryptographic work for memory/features, and runtime-backed tool execution.
 
 ---
 

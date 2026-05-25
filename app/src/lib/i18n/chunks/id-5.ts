@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // Indonesian (Bahasa Indonesia) chunk 5/5. Translated from chunks/en-5.ts.
 const id5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'API key Composio saat ini tersimpan di perangkat ini.',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'API key Composio',
   'settings.composio.apiKeyStored': 'API key tersimpan',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -11,7 +12,7 @@ const id5: TranslationMap = {
   'settings.composio.confirmItem2':
     'Menghubungkan ulang setiap integrasi melalui akun Composio pribadi Anda',
   'settings.composio.confirmItem3':
-    'Catatan: trigger Composio (webhook real-time) belum berjalan di mode Direct — hanya pemanggilan tool sinkron',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'Anda akan butuh:',
   'settings.composio.confirmSwitch': 'Saya mengerti, beralih ke Direct',
   'settings.composio.confirmTitle': '⚠️ Beralih ke mode Direct',
@@ -21,10 +22,10 @@ const id5: TranslationMap = {
     'Composio mengintegrasikan 250+ aplikasi eksternal sebagai tool yang dapat dipanggil agen Anda. Pilih cara pemanggilan tool tersebut dirutekan.',
   'settings.composio.modeDirect': 'Langsung (bawa API key Anda sendiri)',
   'settings.composio.modeDirectDesc':
-    'Panggilan langsung ke backend.composio.dev. Berdaulat / ramah offline. Eksekusi tool berjalan sinkron; webhook trigger real-time belum dirutekan dalam mode direct (isu lanjutan).',
-  'settings.composio.modeManaged': 'Terkelola (OpenHuman menanganinya untuk Anda)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman mem-proxy pemanggilan tool melalui backend kami (disarankan). Autentikasi dibrokerkan; Anda tidak perlu menempel API key Composio. Webhook dirutekan sepenuhnya.',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'Mode routing',
   'settings.composio.saveErrorNoKey':
     'Gagal menyimpan. Mode Direct memerlukan API key yang tidak kosong.',

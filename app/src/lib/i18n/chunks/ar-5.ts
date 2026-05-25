@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // Arabic (العربية) chunk 5/5. Translated from chunks/en-5.ts.
 const ar5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'يتم حاليًا تخزين مفتاح Composio API على هذا الجهاز.',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'مفتاح Composio API',
   'settings.composio.apiKeyStored': 'تم تخزين مفتاح API',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -10,7 +11,7 @@ const ar5: TranslationMap = {
   'settings.composio.confirmItem1': 'حساب على app.composio.dev مع مفتاح API',
   'settings.composio.confirmItem2': 'لإعادة ربط كل تكامل عبر حساب Composio الشخصي الخاص بك',
   'settings.composio.confirmItem3':
-    'ملاحظة: مشغّلات Composio (الـ webhooks الفورية) لا تعمل في الوضع المباشر بعد — فقط استدعاءات الأدوات المتزامنة',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'ستحتاج إلى:',
   'settings.composio.confirmSwitch': 'أفهم، التبديل إلى المباشر',
   'settings.composio.confirmTitle': '⚠️ التبديل إلى الوضع المباشر',
@@ -20,10 +21,10 @@ const ar5: TranslationMap = {
     'يُدمج Composio أكثر من 250 تطبيقًا خارجيًا كأدوات يمكن للوكيل استدعاؤها. اختر كيفية توجيه هذه الاستدعاءات.',
   'settings.composio.modeDirect': 'مباشر (استخدم مفتاح API الخاص بك)',
   'settings.composio.modeDirectDesc':
-    'تذهب الاستدعاءات إلى backend.composio.dev مباشرةً. سيادي / مناسب للعمل دون اتصال. تنفيذ الأدوات يعمل بشكل متزامن؛ مشغّلات الـ webhooks الفورية لم تُوجَّه بعد في الوضع المباشر (مشكلة متابعة).',
-  'settings.composio.modeManaged': 'مُدار (OpenHuman يتولى الأمر نيابةً عنك)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'يقوم OpenHuman بتمرير استدعاءات الأدوات عبر خادمنا الخلفي (موصى به). تتم وساطة المصادقة؛ لن تلصق مفتاح Composio API. الـ webhooks مُوجَّهة بالكامل.',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'وضع التوجيه',
   'settings.composio.saveErrorNoKey': 'فشل الحفظ. الوضع المباشر يتطلب مفتاح API غير فارغ.',
   'settings.composio.saving': 'جارٍ الحفظ…',

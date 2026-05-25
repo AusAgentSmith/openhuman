@@ -21,7 +21,7 @@ Dictation can replace the active text input on your desktop, or be sent straight
 
 ## Text-to-speech
 
-Reply speech routes through a hosted TTS model. The agent's responses can be spoken back in a voice you pick, with natural timing and prosody. Voice selection is configurable per user, and the mascot avatar lip-syncs to the audio stream via a viseme map.
+Reply speech routes through the configured TTS provider. The preferred closedhuman path is a local OpenAI-compatible Kokoro server; macOS can also use the system `say` fallback. The legacy hosted ElevenLabs proxy depends on the removed backend and is effectively dead in this fork. Voice selection is configurable, and the mascot avatar lip-syncs to the audio stream via a viseme map.
 
 ## Live Google Meet agent
 
@@ -33,8 +33,8 @@ OpenHuman's flagship voice integration:
 
 ## Privacy
 
-* Audio capture is local. Streaming STT goes through the OpenHuman backend; no recording is retained beyond the live transcript.
-* TTS audio is streamed and discarded - nothing stored.
+* Audio capture is local. STT/TTS traffic goes to the provider you configure; no OpenHuman product backend is involved.
+* TTS audio is streamed and discarded - nothing stored by OpenHuman.
 * Meeting transcripts land in your local memory tree, like any other source.
 
 ## See also

@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // Russian (Русский) chunk 5/5. Translated from chunks/en-5.ts.
 const ru5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'API-ключ Composio сейчас сохранён на этом устройстве.',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'API-ключ Composio',
   'settings.composio.apiKeyStored': 'API-ключ сохранён',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -11,7 +12,7 @@ const ru5: TranslationMap = {
   'settings.composio.confirmItem2':
     'Заново привязать каждую интеграцию через ваш личный аккаунт Composio',
   'settings.composio.confirmItem3':
-    'Примечание: триггеры Composio (вебхуки в реальном времени) пока не работают в прямом режиме — только синхронные вызовы инструментов',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'Вам понадобится:',
   'settings.composio.confirmSwitch': 'Понятно, переключить на «Прямой»',
   'settings.composio.confirmTitle': '⚠️ Переключение на прямой режим',
@@ -21,10 +22,10 @@ const ru5: TranslationMap = {
     'Composio интегрирует 250+ внешних приложений как инструменты, которые может вызывать ваш агент. Выберите способ маршрутизации этих вызовов.',
   'settings.composio.modeDirect': 'Прямой (собственный API-ключ)',
   'settings.composio.modeDirectDesc':
-    'Вызовы идут напрямую на backend.composio.dev. Суверенно и подходит для офлайн. Выполнение инструментов работает синхронно; вебхуки триггеров в реальном времени пока не маршрутизируются в прямом режиме (см. отдельную задачу).',
-  'settings.composio.modeManaged': 'Управляемый (OpenHuman управляет за тебя)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman проксирует вызовы инструментов через наш бэкенд (рекомендуется). Авторизация брокеруется; вам не нужно вставлять API-ключ Composio. Вебхуки полностью маршрутизируются.',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'Режим маршрутизации',
   'settings.composio.saveErrorNoKey':
     'Не удалось сохранить. Прямой режим требует непустой API-ключ.',

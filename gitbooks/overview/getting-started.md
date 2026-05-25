@@ -1,13 +1,13 @@
 ---
 description: >-
-  Install OpenHuman, walk through the in-app onboarding (sign in, connect Gmail,
-  choose how AI runs), and run your first request against your own Memory Tree.
+  Install OpenHuman, choose Local or Cloud runtime, configure AI and optional
+  integrations, and run your first request against your own Memory Tree.
 icon: play
 ---
 
 # Getting Started
 
-This page walks you through installing OpenHuman, going through the in-app onboarding, and running your first request.
+This page walks you through installing OpenHuman, choosing a runtime, configuring AI, and running your first request.
 
 OpenHuman is open source under the GNU GPL3 license. The codebase is at [github.com/tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman).
 
@@ -27,17 +27,30 @@ The first time you launch OpenHuman, the OS will prompt for the permissions the 
 
 Get the OpenHuman desktop app from [http://tinyhumans.ai/openhuman](http://tinyhumans.ai/openhuman) or via your platform's package manager. Open the app once it's installed.
 
-## 2. Sign in
+## 2. Choose a runtime
 
-The first screen is **"Sign in! Let's Cook"**. Multiple sign-in options are available, including social login. There's also an **Advanced** panel for pointing the app at a custom core RPC URL if you're running your own backend; most users can ignore it.
+The first screen asks whether to run the core locally or connect to a remote core:
 
-{% hint style="info" %}
-**No permanent lock-in.** Signing in does not grant OpenHuman ongoing access to anything. All third-party access requires explicit OAuth approval per integration in the steps below.
-{% endhint %}
+* **Local** starts `openhuman-core` inside the desktop app. Use this for one-machine/offline-first setups.
+* **Cloud** connects the desktop app to a self-hosted `openhuman-core` server. Paste the server URL and bearer token from your deployment.
 
-## 3. Run your first request
+There is no OpenHuman account login in the closedhuman fork.
 
-Once Gmail has been ingested (the first auto-fetch tick happens within twenty minutes), try prompts like:
+## 3. Configure AI
+
+Open **Settings → AI** and add your provider key. The default path is a BYO OpenAI-compatible provider, but Anthropic, OpenRouter, local Ollama, LM Studio, vLLM, and other compatible endpoints can be configured too.
+
+## 4. Optional: connect integrations
+
+For native Google/GitHub coverage, use the built-in OAuth flow or the `oauth-connect` CLI. Gmail, Calendar, Drive, and GitHub have direct Rust providers for selected actions.
+
+For long-tail integrations such as Discord, Slack, Notion, Jira, and non-native Gmail actions, first open **Settings → Developer Options → Composio Routing (Direct Mode)** and paste your Composio API key. Then connect services from the Skills/Integrations grid. OpenHuman creates missing Composio managed auth configs automatically before opening the hosted OAuth page.
+
+Real-time integration triggers require **Settings → Developer Options → Composio Triggers (Direct Mode)** with an ngrok static domain and authtoken.
+
+## 5. Run your first request
+
+Once chat is responding, try prompts like:
 
 **Briefings**
 
@@ -55,13 +68,13 @@ OpenHuman picks the right model for each task automatically. See [Automatic Mode
 
 ***
 
-## 4. Open the Obsidian vault
+## 6. Open the Obsidian vault
 
 The Memory tab has a **View vault in Obsidian** button. Click it to open `<workspace>/wiki/` in [Obsidian](https://obsidian.md). You can browse the agent's summaries, drop in your own notes, and even build manual links - the agent will pick up your edits on the next ingest. See [Obsidian-Style Memory](../features/obsidian-wiki/).
 
 ***
 
-## 5. Let the mascot do more
+## 7. Let the mascot do more
 
 Now that the agent has memory and a model, the rest of the product is about giving it more surfaces:
 

@@ -8,7 +8,7 @@ icon: toolbox
 
 # Native Tools
 
-OpenHuman's agent doesn't ship empty. Every model behind the agent has a curated set of tools available the moment you install - no plugin marketplace, no API keys to wire up, no MCP servers to register. The whole toolbelt is in the box.
+OpenHuman's agent doesn't ship empty. Every model behind the agent has a curated set of local/core tools available the moment you install. Built-in tools need no plugin marketplace or MCP server; external integrations use native OAuth or your BYO Composio API key.
 
 This page is the index. Each subpage covers one family of tools.
 
@@ -19,7 +19,7 @@ A plugin-only model means tools live in different processes, behind RPC, with th
 * Consistent error handling.
 * Zero install friction.
 * All output passes through [Smart Token Compression](../token-compression.md) for free.
-* Predictable security boundary - filesystem tools respect workspace scoping, network tools go through the OpenHuman proxy.
+* Predictable security boundary - filesystem tools respect workspace scoping, provider tools use the active core's configured credentials.
 
 ## The toolbelt
 

@@ -9,12 +9,12 @@
 //! `UnifiedMemory` instances.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::openhuman::config::{EmbeddingRouteConfig, MemoryConfig, StorageProviderConfig};
 use crate::openhuman::embeddings::{
-    self, DEFAULT_OLLAMA_DIMENSIONS, DEFAULT_OLLAMA_MODEL, EmbeddingProvider,
+    self, EmbeddingProvider, DEFAULT_OLLAMA_DIMENSIONS, DEFAULT_OLLAMA_MODEL,
 };
 use crate::openhuman::memory::store::agentmemory::AgentMemoryBackend;
 use crate::openhuman::memory::store::unified::UnifiedMemory;
@@ -107,7 +107,11 @@ fn redact_ollama_host(base_url: &str) -> &str {
         .next()
         .unwrap_or("")
         .trim();
-    if host.is_empty() { "unknown" } else { host }
+    if host.is_empty() {
+        "unknown"
+    } else {
+        host
+    }
 }
 
 /// Probe whether an Ollama daemon is reachable at `base_url`.
@@ -421,7 +425,7 @@ pub fn create_memory_for_migration(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Json, Router, routing::get};
+    use axum::{routing::get, Json, Router};
     use std::ffi::OsString;
     use std::net::SocketAddr;
 

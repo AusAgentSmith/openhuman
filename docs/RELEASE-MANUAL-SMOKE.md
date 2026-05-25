@@ -53,8 +53,8 @@ Applies to every release, all platforms.
 ### Cross-platform
 
 - [ ] **First launch flow completes for a brand-new user** — Fresh OS user account, no `~/.openhuman` directory. Walk through onboarding to first agent reply. Expected: no crashes, no permission deadlocks, no stale-config errors.
-- [ ] **Auto-update download + relaunch succeeds** — Install the previous release, point the updater feed at this release, trigger an update check. Expected: download completes, relaunch installs the new binary, version string in `Settings > About` matches the release tag.
-- [ ] **Logging out + logging back in preserves nothing private** — Sign out, sign in as a different user. Expected: no leaked memory, threads, or skill state from the previous session (regression watch — see #900).
+- [ ] **Auto-updater remains disabled unless this release explicitly re-enables it** — Open `Settings > About` and confirm no active upstream update prompt is mounted. Expected: the fork does not consume tinyhumansai/openhuman release feeds.
+- [ ] **Clear app data removes private local state** — Use **Settings → Advanced → Clear app data** (or a fresh OS user) and relaunch. Expected: no leaked memory, threads, provider credentials, or skill state from the previous workspace.
 
 ---
 
@@ -65,7 +65,7 @@ Applies to every release, all platforms.
 ### 0.52.x — current
 
 - [ ] **OAuth gate respects `VITE_MINIMUM_SUPPORTED_APP_VERSION`** (per [Release Policy](../gitbooks/developing/release-policy.md)) — Set the variable to a value above this build's version, build, attempt OAuth from the older binary. Expected: gate blocks the deep link; opens `VITE_LATEST_APP_DOWNLOAD_URL`.
-- [ ] **Gmail connect succeeds on a fresh install from `releases/latest`** — Per release-policy step 4. Expected: token exchange completes, inbox lists in-app.
+- [ ] **Composio direct connect succeeds for Gmail or Discord on a fresh install** — Configure **Settings → Developer Options → Composio Routing (Direct Mode)** with a valid Composio API key, then connect Gmail or Discord from the Skills/Integrations grid. Expected: no "No auth config found" error; the app opens Composio's hosted OAuth URL and `openhuman.composio_authorize` returns ok.
 
 ---
 

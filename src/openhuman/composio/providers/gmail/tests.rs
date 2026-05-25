@@ -1,6 +1,6 @@
 //! Unit tests for the Gmail provider.
 
-use super::provider::{BASE_QUERY, SENT_QUERIES};
+use super::provider::{extract_profile_email, BASE_QUERY, MANUAL_MAX_PAGES, SENT_QUERIES};
 use super::sync::{
     cursor_to_gmail_after_epoch_filter, cursor_to_gmail_after_filter, extract_messages,
     extract_page_token, now_ms, parse_cursor_to_epoch_secs,
@@ -83,6 +83,30 @@ fn default_impl_matches_new() {
     let _a = GmailProvider::new();
     let _b = GmailProvider::default();
     // Both are unit structs — constructing via Default is the cover target.
+}
+
+#[test]
+fn profile_email_handles_composio_direct_response_data_shape() {
+    let v = json!({
+        "response_data": {
+            "emailAddress": "  user@example.com  ",
+            "messagesTotal": 42
+        }
+    });
+
+    assert_eq!(
+        extract_profile_email(&v),
+        Some("user@example.com".to_string())
+    );
+}
+
+#[test]
+fn manual_sync_page_cap_is_bounded_for_foreground_rpc() {
+    assert!(
+        MANUAL_MAX_PAGES < 20,
+        "manual sync should stay below the full background Gmail page ceiling"
+    );
+    assert!(MANUAL_MAX_PAGES > 0);
 }
 
 #[test]

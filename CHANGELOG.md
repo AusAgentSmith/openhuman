@@ -12,6 +12,19 @@ closedhuman is released under the **GNU General Public License v3.0**
 
 Dates are in DD.MM.YYYY.
 
+## 25.5.2026 — Direct Composio connect hardening
+
+### Fixed
+
+- **Composio direct connect** now creates a v3 managed auth config lazily
+  when the user's Composio tenant has no auth config for a toolkit yet.
+  This fixes Gmail / Discord connect flows failing with "No auth config
+  found" followed by the dead Composio v2 fallback returning HTTP 410.
+- **Direct-mode setup docs and in-app copy** now point users to
+  **Settings → Developer Options → Composio Routing (Direct Mode)** for the
+  Composio API key and **Composio Triggers (Direct Mode)** for ngrok-backed
+  webhooks.
+
 ## 19.5.2026 — Forked from OpenHuman
 
 Forked from `tinyhumansai/openhuman` at commit `d0d9baba`. The plan locked

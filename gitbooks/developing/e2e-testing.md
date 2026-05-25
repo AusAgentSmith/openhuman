@@ -187,7 +187,7 @@ The first Docker build compiles Rust + tauri-driver from source. Subsequent runs
 
 **File**: `app/test/e2e/specs/notifications.spec.ts`
 
-Tests notification RPC methods via the live core sidecar and the Notifications UI page:
+Tests notification RPC methods via the live test core and the Notifications UI page:
 
 - `notification_ingest`, creates a new notification via core RPC
 - `notification_list`, verifies the ingested notification is returned

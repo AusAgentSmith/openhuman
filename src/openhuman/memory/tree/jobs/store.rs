@@ -23,8 +23,10 @@ use uuid::Uuid;
 
 use crate::openhuman::config::Config;
 use crate::openhuman::memory::tree::jobs::redact::scrub_for_log;
-use crate::openhuman::memory::tree::jobs::types::{Job, JobKind, JobStatus, NewJob};
-use crate::openhuman::memory::tree::store::with_connection;
+use crate::openhuman::memory::tree::jobs::types::{
+    ExtractChunkPayload, Job, JobKind, JobStatus, NewJob,
+};
+use crate::openhuman::memory::tree::store::{with_connection, CHUNK_STATUS_PENDING_EXTRACTION};
 
 /// Default visibility lock — a worker that crashes mid-job will have its
 /// row recovered after this window. 5 min is comfortably larger than any
@@ -36,6 +38,7 @@ pub const DEFAULT_LOCK_DURATION_MS: i64 = 5 * 60 * 1_000;
 const RETRY_BASE_MS: i64 = 60 * 1_000;
 const RETRY_CAP_MS: i64 = 60 * 60 * 1_000;
 const DEFAULT_MAX_ATTEMPTS: u32 = 5;
+const LEGACY_CONTENT_SOURCE_ERROR_NEEDLE: &str = "empty content_path and no raw_refs";
 
 /// Enqueue one job. Idempotent on `dedupe_key` while another active row
 /// (status `ready`/`running`) shares it. Returns `Some(id)` if the row
@@ -331,6 +334,64 @@ pub fn recover_stale_locks(config: &Config) -> Result<usize> {
     })
 }
 
+/// Requeue extract jobs that terminally failed because a chunk had no readable
+/// body source before the SQL-content fallback existed.
+///
+/// This is intentionally narrow: it only targets pending chunks with non-empty
+/// SQL content and a previous `empty content_path and no raw_refs` failure. If
+/// a newer non-legacy failure exists for the same chunk, leave it alone so
+/// restart does not loop forever on unrelated LLM/provider errors.
+pub fn requeue_extract_chunks_after_content_source_repair(config: &Config) -> Result<usize> {
+    with_connection(config, |conn| {
+        let tx = conn.unchecked_transaction()?;
+        let like = format!("%{LEGACY_CONTENT_SOURCE_ERROR_NEEDLE}%");
+        let chunk_ids: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT DISTINCT c.id
+                   FROM mem_tree_chunks c
+                   JOIN mem_tree_jobs failed
+                     ON failed.kind = 'extract_chunk'
+                    AND failed.dedupe_key = 'extract:' || c.id
+                    AND failed.status = 'failed'
+                    AND failed.last_error LIKE ?1
+                  WHERE c.lifecycle_status = ?2
+                    AND trim(c.content) <> ''
+                    AND NOT EXISTS (
+                        SELECT 1
+                          FROM mem_tree_jobs active
+                         WHERE active.kind = 'extract_chunk'
+                           AND active.dedupe_key = 'extract:' || c.id
+                           AND active.status IN ('ready', 'running')
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                          FROM mem_tree_jobs newer
+                         WHERE newer.kind = 'extract_chunk'
+                           AND newer.dedupe_key = 'extract:' || c.id
+                           AND newer.created_at_ms > failed.created_at_ms
+                           AND newer.status IN ('done', 'failed')
+                           AND (newer.last_error IS NULL OR newer.last_error NOT LIKE ?1)
+                    )",
+            )?;
+            let rows = stmt.query_map(params![like, CHUNK_STATUS_PENDING_EXTRACTION], |row| {
+                row.get::<_, String>(0)
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut requeued = 0usize;
+        for chunk_id in chunk_ids {
+            let payload = ExtractChunkPayload { chunk_id };
+            let job = NewJob::extract_chunk(&payload)?;
+            if enqueue_tx(&tx, &job)?.is_some() {
+                requeued += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(requeued)
+    })
+}
+
 /// Quick count helper for tests / diagnostics.
 pub fn count_by_status(config: &Config, status: JobStatus) -> Result<u64> {
     with_connection(config, |conn| {
@@ -423,6 +484,9 @@ mod tests {
     use crate::openhuman::memory::tree::jobs::types::{
         AppendBufferPayload, AppendTarget, ExtractChunkPayload, NodeRef,
     };
+    use crate::openhuman::memory::tree::store as chunk_store;
+    use crate::openhuman::memory::tree::types::{Chunk, Metadata, SourceKind};
+    use chrono::TimeZone;
     use tempfile::TempDir;
 
     fn test_config() -> (TempDir, Config) {
@@ -433,6 +497,27 @@ mod tests {
         cfg.memory_tree.embedding_model = None;
         cfg.memory_tree.embedding_strict = false;
         (tmp, cfg)
+    }
+
+    fn sample_chunk(id: &str) -> Chunk {
+        let ts = chrono::Utc.timestamp_millis_opt(1_700_000_000_000).unwrap();
+        Chunk {
+            id: id.to_string(),
+            content: "legacy sql body".to_string(),
+            metadata: Metadata {
+                source_kind: SourceKind::Email,
+                source_id: "gmail:alice@example.com|bob@example.com".to_string(),
+                owner: "gmail-sync:test".to_string(),
+                timestamp: ts,
+                time_range: (ts, ts),
+                tags: vec!["gmail".to_string()],
+                source_ref: None,
+            },
+            token_count: 3,
+            seq_in_source: 0,
+            created_at: ts,
+            partial_message: false,
+        }
     }
 
     #[test]
@@ -608,6 +693,45 @@ mod tests {
         assert_eq!(recovered, 1);
         let row = get_job(&cfg, &id).unwrap().unwrap();
         assert_eq!(row.status, JobStatus::Ready);
+    }
+
+    #[test]
+    fn requeue_extract_chunks_after_content_source_repair_targets_legacy_failures() {
+        let (_tmp, cfg) = test_config();
+        let chunk = sample_chunk("legacy-body-source");
+        chunk_store::upsert_chunks(&cfg, std::slice::from_ref(&chunk)).unwrap();
+        chunk_store::set_chunk_lifecycle_status(&cfg, &chunk.id, CHUNK_STATUS_PENDING_EXTRACTION)
+            .unwrap();
+
+        let mut job = NewJob::extract_chunk(&ExtractChunkPayload {
+            chunk_id: chunk.id.clone(),
+        })
+        .unwrap();
+        job.max_attempts = Some(1);
+        let failed_id = enqueue(&cfg, &job).unwrap().expect("inserted");
+        let claimed = claim_next(&cfg, DEFAULT_LOCK_DURATION_MS).unwrap().unwrap();
+        mark_failed(
+            &cfg,
+            &claimed,
+            "read full body: [content_store::read] empty content_path and no raw_refs",
+        )
+        .unwrap();
+        assert_eq!(
+            get_job(&cfg, &failed_id).unwrap().unwrap().status,
+            JobStatus::Failed
+        );
+
+        assert_eq!(
+            requeue_extract_chunks_after_content_source_repair(&cfg).unwrap(),
+            1
+        );
+        assert_eq!(count_by_status(&cfg, JobStatus::Ready).unwrap(), 1);
+
+        assert_eq!(
+            requeue_extract_chunks_after_content_source_repair(&cfg).unwrap(),
+            0,
+            "active requeued job should suppress duplicate repair"
+        );
     }
 
     /// Happy path: a non-stale settlement still succeeds after the claim-token

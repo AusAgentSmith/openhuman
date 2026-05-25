@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // Simplified Chinese (简体中文) chunk 5/5. Translated from chunks/en-5.ts.
 const zhCN5: TranslationMap = {
-  'settings.composio.apiKeyDesc': '当前此设备上已存储一个 Composio API 密钥。',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'Composio API 密钥',
   'settings.composio.apiKeyStored': 'API 密钥已存储',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -10,7 +11,7 @@ const zhCN5: TranslationMap = {
   'settings.composio.confirmItem1': '在 app.composio.dev 上拥有带 API 密钥的账户',
   'settings.composio.confirmItem2': '通过你的个人 Composio 账户重新关联每个集成',
   'settings.composio.confirmItem3':
-    '注意：Composio 触发器（实时 Webhook）在直连模式下尚不可用——仅支持同步工具调用',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': '你需要：',
   'settings.composio.confirmSwitch': '我已了解，切换到直连',
   'settings.composio.confirmTitle': '⚠️ 切换到直连模式',
@@ -20,10 +21,10 @@ const zhCN5: TranslationMap = {
     'Composio 集成了 250+ 外部应用作为智能体可调用的工具。请选择这些工具调用的路由方式。',
   'settings.composio.modeDirect': '直连（自带 API 密钥）',
   'settings.composio.modeDirectDesc':
-    '调用直接发送到 backend.composio.dev。自主可控 / 适合离线场景。工具同步执行；实时触发器 Webhook 目前在直连模式下尚未路由（后续问题）。',
-  'settings.composio.modeManaged': '托管（由 OpenHuman 管理）',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman 通过我们的后端代理工具调用（推荐）。认证由我们处理，你无需粘贴 Composio API 密钥。Webhook 完全路由。',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': '路由模式',
   'settings.composio.saveErrorNoKey': '保存失败。直连模式需要非空的 API 密钥。',
   'settings.composio.saving': '保存中…',

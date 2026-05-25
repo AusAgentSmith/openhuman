@@ -3,15 +3,15 @@ description: Release cadence, version policy, OAuth-and-installer rules. How shi
 icon: ship
 ---
 
-# Release policy: latest desktop builds and OAuth
+# Release policy: latest desktop builds and integration OAuth
 
-This runbook describes how we avoid users completing **OAuth** (including **Gmail**) on **outdated desktop installers** while the canonical flow is the **latest** release.
+This runbook describes how we avoid users completing integration OAuth on outdated desktop installers while the canonical flow is the latest fork release.
 
 ## Distribution
 
-- **GitHub Releases** for [tinyhumansai/openhuman](https://github.com/tinyhumansai/openhuman/releases) are the primary source for desktop builds.
-- The **Tauri updater** endpoint (see `scripts/prepareTauriConfig.js` and release workflows) should point users at the current release artifacts.
-- **Retiring old stable artifacts:** When dropping a release line, remove or hide obsolete installer assets on **GitHub Releases**, update **website / CDN** download links to **releases/latest** (or current), refresh the **updater manifest** (e.g. Gist / `latest.json`) so it does not point users at deprecated builds, and spot-check that old direct URLs are **redirected, 404, or 410** where appropriate. Verification: try known-old asset URLs from docs or bookmarks and confirm they no longer deliver primary install paths.
+- **GitHub Releases** for the fork are the primary source for desktop builds.
+- The closedhuman fork currently has Tauri auto-update disabled; do not point installed clients at upstream tinyhumansai/openhuman release feeds.
+- **Retiring old stable artifacts:** When dropping a release line, remove or hide obsolete installer assets on **GitHub Releases**, update download links to **releases/latest** (or current), and spot-check that old direct URLs are **redirected, 404, or 410** where appropriate. Verification: try known-old asset URLs from docs or bookmarks and confirm they no longer deliver primary install paths.
 
 ## Minimum app version for OAuth
 
@@ -26,17 +26,17 @@ Configure these as **GitHub Actions variables**. They must be present on **both*
 
 Implementation: `app/src/utils/oauthAppVersionGate.ts`, `app/src/utils/desktopDeepLinkListener.ts`.
 
-## Gmail / Google Cloud OAuth
+## Integration OAuth
 
-- **Redirect URIs** in Google Cloud Console must match the **current** backend + tunnel callback paths.
-- The desktop scheme (`openhuman://`) is stable; the **installed binary** must meet the minimum version when `VITE_MINIMUM_SUPPORTED_APP_VERSION` is set.
+- Native Google/GitHub OAuth uses the desktop/local loopback flow and the installed binary must meet the minimum version when `VITE_MINIMUM_SUPPORTED_APP_VERSION` is set.
+- Composio direct-mode OAuth uses the user's Composio tenant. `composio_authorize` creates missing v3 managed auth configs lazily before opening Composio's hosted OAuth URL; release smoke should catch any regression to the old "No auth config found" failure.
 
 ## Release checklist (avoid regressions)
 
 1. Bump `app/package.json` and `app/src-tauri/tauri.conf.json` (and root `Cargo.toml` / core) per existing version workflows.
 2. When dropping support for older installs, set **`VITE_MINIMUM_SUPPORTED_APP_VERSION`** to the new floor **before** or **with** that release (repo Actions variables + both workflow steps above).
-3. Remove, redirect, or retire older stable installers and stale **updater** entries from user-facing surfaces (GitHub Release assets, website, CDN, updater feed). Confirm deprecated artifacts are not reachable from default install/update flows.
-4. Smoke-test **Gmail connect** on a fresh install from **releases/latest**.
+3. Remove, redirect, or retire older stable installers from user-facing surfaces (GitHub Release assets, website, CDN). Confirm deprecated artifacts are not reachable from default install/update flows.
+4. Smoke-test **Composio direct connect** for Gmail or Discord on a fresh install from **releases/latest** after configuring **Settings → Developer Options → Composio Routing (Direct Mode)**.
 5. Complete the [manual smoke checklist](../../docs/RELEASE-MANUAL-SMOKE.md), then paste the completed sign-off block (verbatim, with every checked item left checked) into the release PR description before tagging.
 
 ## Workflows: staging vs. production

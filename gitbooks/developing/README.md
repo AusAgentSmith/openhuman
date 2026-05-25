@@ -28,9 +28,9 @@ If you just want to use the app, head to [Getting Started](../overview/getting-s
 
 If it's your first time pulling the repo:
 
-1. [**Getting Set Up**](getting-set-up.md). Toolchain, dependencies, the vendored Tauri CLI, sidecar staging - everything `pnpm dev` needs to actually start.
+1. [**Getting Set Up**](getting-set-up.md). Toolchain, dependencies, the vendored Tauri CLI, and embedded/remote core runtime setup - everything `pnpm dev` needs to actually start.
 2. [**Building the Rust Core**](building-rust-core.md). Fresh-machine setup for the repo-root Rust crate only: pinned toolchain, OS packages, and exact `cargo` commands.
-3. [**Architecture**](architecture.md). How the desktop app, the Rust core sidecar, the JSON-RPC bridge, and the dual sockets fit together. Read this before you make non-trivial changes.
+3. [**Architecture**](architecture.md). How the desktop app, local embedded core, remote server mode, JSON-RPC bridge, and sockets fit together. Read this before you make non-trivial changes.
 4. [**Frontend**](architecture/frontend.md) and [**Tauri Shell**](architecture/tauri-shell.md). The React app and the desktop host that wraps it.
 5. [**MCP Server**](mcp-server.md). Opt-in stdio MCP mode for exposing read-only OpenHuman memory tools to local clients.
 

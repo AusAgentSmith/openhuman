@@ -1,15 +1,15 @@
 ---
 description: >-
   118+ third-party integrations - Gmail, Notion, GitHub, Slack, Stripe, Calendar
-  and more - with one-click OAuth and zero API keys.
+  and more - with native providers plus BYO Composio direct mode.
 icon: plug
 ---
 
 # Third-party Integrations (118+)
 
-OpenHuman ships with backend-proxied access to **118+ third-party services**. Connecting any of them is a one-click OAuth flow inside the app, there are no API keys to wire by hand, and no plugin marketplace to navigate.
+OpenHuman ships native providers for the core Google/GitHub path and uses **Composio direct mode** for the long-tail integration catalog. There is no OpenHuman-hosted integration proxy in this fork: you bring your own Composio API key, and the core calls Composio v3 from the active runtime.
 
-(Under the hood, the connector layer is powered by [Composio](https://composio.dev). You will not need to think about it.)
+Configure the key once under **Settings → Developer Options → Composio Routing (Direct Mode)**. In Cloud mode the key is stored in the server workspace's encrypted credential store; in Local mode it is stored in the local workspace. It is not stored in `config.toml`.
 
 Once a service is connected, it shows up in four places at once:
 
@@ -33,13 +33,15 @@ The catalog spans productivity, business, social, messaging and Google. A non-ex
 | **Project management**  | Asana, Trello                                        |
 | **Social**              | Twitter / X, Spotify, YouTube                        |
 
-## Native vs proxied
+## Native vs Composio-managed
 
-Some services have **native providers**. Rust modules that know how to ingest the service into the Memory Tree directly (e.g. Gmail's native ingest path). Others are exposed as **proxied tools** only: the agent can call them, but there's no automatic ingest yet. New native providers are added as features land.
+Some services have **native providers**: Rust modules that know how to ingest the service into the Memory Tree directly and execute selected actions without Composio (for example Gmail, Calendar, Drive, and GitHub). Other services are **Composio-managed**: the agent can call them through your Composio tenant, but there may not be an automatic ingest path yet. New native providers are added as features land.
 
 ## How connections work
 
-Click **Connect** on any integration. A browser window opens for OAuth. Once you sign in, the connection becomes active and OpenHuman starts syncing it through [auto-fetch](../obsidian-wiki/auto-fetch.md) on the next 20-minute tick.
+Click **Connect** on any integration. The core calls `openhuman.composio_authorize`, looks up a Composio v3 auth config for that toolkit, creates a managed auth config if your Composio tenant does not have one yet, and opens Composio's hosted OAuth URL in the browser. Once you sign in, the connection becomes active and OpenHuman can use the toolkit through the agent tool surface.
+
+For common managed-auth toolkits such as Gmail or Discord, you should not need to create an auth config manually in the Composio dashboard. If you see an error that says no auth config exists, you are likely running an older core build.
 
 Each integration shows its current status:
 
@@ -47,7 +49,17 @@ Each integration shows its current status:
 * **Connected**. integration is active and being synced.
 * **Manage**. active integration with options to reconfigure or disconnect.
 
-You can revoke any connection at any time from the Skills tab.
+You can revoke any connection at any time from the Skills tab. The Composio API key itself is managed from **Settings → Developer Options → Composio Routing (Direct Mode)**.
+
+## Triggers
+
+Real-time integration events require a public webhook URL. Direct mode provides this through the embedded webhook receiver plus ngrok:
+
+1. Open **Settings → Developer Options → Composio Triggers (Direct Mode)**.
+2. Paste a static `*.ngrok-free.dev` domain and ngrok authtoken.
+3. Enable the local receiver.
+
+The receiver verifies Composio's HMAC signature, parses the v3 envelope, and publishes `DomainEvent::ComposioTriggerReceived` to the local event bus. See [Triggers](triggers.md) for the full pipeline.
 
 ## Messaging channels
 
@@ -72,7 +84,12 @@ Two capabilities ship native rather than as integrations because they're load-be
 
 ## Privacy boundary
 
-OpenHuman's core never calls any third-party API directly. All requests go through the OpenHuman backend, which handles OAuth tokens and rate limiting. Your tokens never sit on disk in plaintext on your machine, and the agent only sees the _results_ of tool calls, not the credentials.
+There is no OpenHuman integration backend in this fork. Integration traffic follows one of two paths:
+
+* Native Google/GitHub coverage uses provider OAuth tokens stored by the core's encrypted `AuthService`.
+* Long-tail toolkits go through your personal Composio tenant using the Composio API key you configured.
+
+The agent sees tool results, not credentials. Secrets live in the active core workspace credential store, and Composio provider tokens live in your Composio tenant.
 
 See [Privacy & Security](../privacy-and-security.md) for the full boundary.
 

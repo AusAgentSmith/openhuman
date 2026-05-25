@@ -70,6 +70,13 @@ const MAX_PAGES_PER_SYNC: u32 = 20;
 /// re-fetching content `synced_ids` will throw away anyway.
 const RECENT_SYNC_MAX_PAGES: u32 = 2;
 
+/// Foreground manual sync cap. The memory page currently awaits the
+/// `openhuman.composio_sync` RPC with the frontend's default 30 s
+/// timeout, while a full 20-page Gmail pass can legitimately take
+/// about a minute on Composio direct mode. Keep explicit user clicks
+/// bounded; periodic/background syncs still use the larger ceiling.
+pub(super) const MANUAL_MAX_PAGES: u32 = 5;
+
 /// "Recent" window used by the adaptive page cap. Five minutes is short
 /// enough that periodic-tick churn and trigger-driven retries fall
 /// inside it, but long enough that a genuine "no-activity" gap (e.g.
@@ -91,6 +98,30 @@ const MESSAGE_DATE_PATHS: &[&str] = &[
     "receivedAt",
     "data.receivedAt",
 ];
+
+/// Extract Gmail account email from the direct/backend profile payload.
+///
+/// Composio direct mode currently returns `GMAIL_GET_PROFILE` as
+/// `{ response_data: { emailAddress, ... } }`, while older/backend
+/// envelopes used root-level profile keys. Keep both shapes so account-
+/// scoped ingest does not silently fall back to participant bucketing.
+pub(super) fn extract_profile_email(data: &Value) -> Option<String> {
+    pick_str(
+        data,
+        &[
+            "emailAddress",
+            "email",
+            "profile.emailAddress",
+            "profile.email",
+            "response_data.emailAddress",
+            "response_data.email",
+            "response_data.profile.emailAddress",
+            "response_data.profile.email",
+            "responseData.emailAddress",
+            "responseData.email",
+        ],
+    )
+}
 
 pub struct GmailProvider;
 
@@ -151,20 +182,35 @@ impl ComposioProvider for GmailProvider {
             return Err(format!("[composio:gmail] {ACTION_GET_PROFILE}: {err}"));
         }
 
-        // `data` is the inner Composio payload — paths here are relative
-        // to it. (The previous `data.*` paths were dead — `pick_str`
-        // does dotted-path traversal, so `data.emailAddress` looked for
-        // a nested `data.data.emailAddress` that never exists.)
         let data = &resp.data;
-        let email = pick_str(data, &["emailAddress", "email", "profile.emailAddress"]);
+        let email = extract_profile_email(data);
         // Don't fall back to the email when no name is returned — that
         // produces duplicated `display_name == email` rows in the
         // identity registry (#1365). Gmail's `GMAIL_GET_PROFILE` action
         // doesn't return a name today, so this stays None.
-        let display_name = pick_str(data, &["name", "profile.name", "displayName"]);
+        let display_name = pick_str(
+            data,
+            &[
+                "name",
+                "profile.name",
+                "displayName",
+                "response_data.name",
+                "response_data.profile.name",
+                "response_data.displayName",
+            ],
+        );
         let profile_url = pick_str(
             data,
-            &["display_url", "profileUrl", "profile_url", "profile.url"],
+            &[
+                "display_url",
+                "profileUrl",
+                "profile_url",
+                "profile.url",
+                "response_data.display_url",
+                "response_data.profileUrl",
+                "response_data.profile_url",
+                "response_data.profile.url",
+            ],
         );
 
         let profile = ProviderUserProfile {
@@ -255,12 +301,31 @@ impl ComposioProvider for GmailProvider {
         // Adaptive page cap: if the previous successful sync wrote
         // within the recent window, cap pagination aggressively.
         // Initial backfills (`ConnectionCreated`) skip the cap — they
-        // legitimately want the larger ceiling — and the cap only
-        // kicks in when we have a prior `last_sync_at_ms` to compare
-        // against, so first-ever syncs are unaffected.
+        // legitimately want the larger ceiling. Manual syncs also get
+        // a foreground cap even on first run so the memory-page RPC
+        // stays below the frontend timeout.
         let max_pages = match reason {
             SyncReason::ConnectionCreated => MAX_PAGES_PER_SYNC,
-            _ => match state.last_sync_at_ms {
+            SyncReason::Manual => match state.last_sync_at_ms {
+                Some(last_ms) if sync::now_ms().saturating_sub(last_ms) < RECENT_SYNC_WINDOW_MS => {
+                    tracing::debug!(
+                        connection_id = %connection_id,
+                        last_sync_at_ms = last_ms,
+                        cap = RECENT_SYNC_MAX_PAGES,
+                        "[composio:gmail] recent sync — applying adaptive page cap"
+                    );
+                    RECENT_SYNC_MAX_PAGES
+                }
+                _ => {
+                    tracing::debug!(
+                        connection_id = %connection_id,
+                        cap = MANUAL_MAX_PAGES,
+                        "[composio:gmail] manual sync — applying foreground page cap"
+                    );
+                    MANUAL_MAX_PAGES
+                }
+            },
+            SyncReason::Periodic => match state.last_sync_at_ms {
                 Some(last_ms) if sync::now_ms().saturating_sub(last_ms) < RECENT_SYNC_WINDOW_MS => {
                     tracing::debug!(
                         connection_id = %connection_id,

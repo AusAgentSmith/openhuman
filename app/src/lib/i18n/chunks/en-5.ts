@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // English chunk 5/5. Source of truth for translators.
 const en5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'A Composio API key is currently stored on this device.',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'Composio API key',
   'settings.composio.apiKeyStored': 'API key stored',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -11,7 +12,7 @@ const en5: TranslationMap = {
   'settings.composio.confirmItem2':
     'To re-link each integration through your personal Composio account',
   'settings.composio.confirmItem3':
-    "Note: Composio triggers (real-time webhooks) don't fire in Direct mode yet — only synchronous tool calls",
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': "You'll need:",
   'settings.composio.confirmSwitch': 'I understand, switch to Direct',
   'settings.composio.confirmTitle': '⚠️ Switching to Direct mode',
@@ -21,10 +22,10 @@ const en5: TranslationMap = {
     'Composio integrates 250+ external apps as tools your agent can call. Choose how those tool calls are routed.',
   'settings.composio.modeDirect': 'Direct (bring your own API key)',
   'settings.composio.modeDirectDesc':
-    'Calls go to backend.composio.dev directly. Sovereign / offline-friendly. Tool execution works synchronously; real-time trigger webhooks are not yet routed in direct mode (follow-up issue).',
-  'settings.composio.modeManaged': 'Managed (OpenHuman handles it for you)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman proxies tool calls through our backend (recommended). Auth is brokered; you never paste a Composio API key. Webhooks are fully routed.',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'Routing mode',
   'settings.composio.saveErrorNoKey': 'Failed to save. Direct mode requires a non-empty API key.',
   'settings.composio.saving': 'Saving…',

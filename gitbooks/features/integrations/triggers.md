@@ -25,7 +25,7 @@ A trigger is an external event published by an integration you've connected. Com
 | **Stripe** | `STRIPE_CHARGE_SUCCEEDED`, a successful charge on your account |
 | **Calendar** | `GOOGLE_CALENDAR_EVENT_CREATED`, a new event on your calendar |
 
-The full set comes from the [Composio](https://composio.dev) connector layer that powers [third-party integrations](README.md). When a connection is active, the relevant trigger subscriptions are wired up automatically.
+The full set comes from the [Composio](https://composio.dev) connector layer that powers [third-party integrations](README.md). In this fork, trigger delivery uses Composio direct mode plus a local webhook receiver; there is no OpenHuman-hosted trigger proxy.
 
 ## Where triggers come from, end to end
 
@@ -36,13 +36,18 @@ The full set comes from the [Composio](https://composio.dev) connector layer tha
  │ webhook
  ▼
 ┌────────────────────┐
-│ OpenHuman backend │ HMAC-verifies the webhook, normalises the payload
+│ Composio v3 │ sends signed webhook to your configured public URL
 └─────────┬──────────┘
- │ Socket.IO event ("composio:trigger")
+ │ HTTPS webhook
  ▼
 ┌────────────────────┐
-│ Rust core │ publishes DomainEvent::ComposioTriggerReceived
-│ (your laptop) │ on the in-process event bus
+│ ngrok static domain │ forwards to local receiver
+└─────────┬──────────┘
+ │ loopback HTTP
+ ▼
+┌────────────────────┐
+│ Rust core receiver │ HMAC-verifies, parses v3 envelope,
+│ local or server │ publishes DomainEvent::ComposioTriggerReceived
 └─────────┬──────────┘
  │
  ▼
@@ -60,7 +65,7 @@ The full set comes from the [Composio](https://composio.dev) connector layer tha
 └────────────────────┘
 ```
 
-The webhook never reaches your machine raw. The backend is what holds the OAuth token and what receives the webhook directly from the third-party. It does HMAC verification, normalises the payload, and forwards it to your Rust core over the existing authenticated socket. Your laptop sees a clean, validated `ComposioTriggerReceived` event on the bus, nothing else.
+The webhook reaches the active core directly through your ngrok domain. The local receiver lives in `src/openhuman/composio/webhook_receiver/`, verifies Composio's Svix-style HMAC headers, parses the v3 envelope, and only then publishes a `ComposioTriggerReceived` event on the core bus.
 
 ## The triage step
 
@@ -103,17 +108,18 @@ Triage runs on the fast model tier (see [Automatic Model Routing](../model-routi
 ## Configuration and opt-out
 
 - **On by default.** Once an integration is connected, its triggers feed into the pipeline automatically.
+- **Webhook setup required.** Open **Settings → Developer Options → Composio Triggers (Direct Mode)** and configure an ngrok static domain, ngrok authtoken, and the local receiver toggle. Without that, trigger management RPCs will report that the local webhook receiver is not running.
 - **Opt-out.** The triage path is gated on the `OPENHUMAN_TRIGGER_TRIAGE_DISABLED` environment variable. Setting it to `1` / `true` / `yes` turns off agent classification and falls back to passive logging only. The integration itself stays connected; only the auto-action behaviour is suppressed.
 - **Per-trigger settings.** Trigger settings (which integrations and event types should be evaluated) are managed under **Settings**; the underlying RPC methods are `update_composio_trigger_settings` / `get_composio_trigger_settings`.
 - **Audit log.** Every trigger, regardless of decision, is written to the trigger history so you can see what arrived, what the classifier decided, and what (if anything) ran. Decisions and escalations are also published as `TriggerEvaluated` / `TriggerEscalated` events on the in-process bus, which means anything inside the core can subscribe to them.
 
 ## Privacy boundary
 
-Triggers follow the same boundary as the rest of the product (see [Privacy & Security](../privacy-and-security.md)):
+Triggers follow the same boundary as the rest of this fork (see [Privacy & Security](../privacy-and-security.md)):
 
-- The third-party token lives on the backend, never on your laptop.
-- The webhook is HMAC-verified by the backend before it reaches your machine.
-- The trigger payload is processed by your local core; classification and any reaction run on your machine, against your local Memory Tree.
+- Composio stores the provider connection in your personal Composio tenant.
+- The webhook is HMAC-verified by the active core before it enters the event bus.
+- In Local mode the trigger payload is processed by your desktop core. In Cloud mode it is processed by your self-hosted core server.
 - Memory notes written by `acknowledge` / `react` / `escalate` paths are stored in your local SQLite memory tree and Markdown vault, the same as any other source.
 
 ## Implementation pointers (for developers)
@@ -121,6 +127,7 @@ Triggers follow the same boundary as the rest of the product (see [Privacy & Sec
 - Triage agent: `src/openhuman/agent/agents/trigger_triage/`
 - Reactor agent: `src/openhuman/agent/agents/trigger_reactor/`
 - Composio bus subscriber: `src/openhuman/composio/bus.rs` (`ComposioTriggerSubscriber`)
+- Direct-mode webhook receiver: `src/openhuman/composio/webhook_receiver/`
 - Trigger history persistence: `src/openhuman/composio/trigger_history.rs`
 - Domain events: `DomainEvent::ComposioTriggerReceived`, `DomainEvent::TriggerEscalated` in `src/core/event_bus/events.rs`
 - Trigger settings RPC: `update_composio_trigger_settings` / `get_composio_trigger_settings` in `src/openhuman/config/`

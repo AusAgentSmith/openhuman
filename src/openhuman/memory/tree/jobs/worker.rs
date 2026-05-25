@@ -19,7 +19,7 @@ use crate::openhuman::memory::tree::jobs::handlers;
 use crate::openhuman::memory::tree::jobs::redact::scrub_for_log;
 use crate::openhuman::memory::tree::jobs::store::{
     claim_next, mark_deferred, mark_done, mark_failed, recover_stale_locks,
-    DEFAULT_LOCK_DURATION_MS,
+    requeue_extract_chunks_after_content_source_repair, DEFAULT_LOCK_DURATION_MS,
 };
 use crate::openhuman::memory::tree::jobs::types::JobOutcome;
 
@@ -68,6 +68,19 @@ pub fn start(config: Config) {
             .clone();
         if let Err(err) = recover_stale_locks(&config) {
             log::warn!("[memory_tree::jobs] recover_stale_locks failed at startup: {err:#}");
+        }
+        match requeue_extract_chunks_after_content_source_repair(&config) {
+            Ok(n) if n > 0 => {
+                log::info!(
+                    "[memory_tree::jobs] requeued {n} extract job(s) after content-source repair"
+                );
+            }
+            Ok(_) => {}
+            Err(err) => {
+                log::warn!(
+                    "[memory_tree::jobs] content-source repair requeue failed at startup: {err:#}"
+                );
+            }
         }
 
         for idx in 0..WORKER_COUNT {

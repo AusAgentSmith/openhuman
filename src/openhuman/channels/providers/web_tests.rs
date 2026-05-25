@@ -8,7 +8,7 @@ use super::{
     set_test_forced_run_chat_task_error, start_chat, subscribe_web_channel_events,
 };
 use crate::core::TypeSchema;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 /// Ensures the test-only forced run_chat_task failure toggle is always reset,
 /// even if the test panics before reaching explicit cleanup code.
@@ -176,11 +176,8 @@ fn generic_error_copy_is_sanitized_and_has_discord_report_action() {
     let message = generic_inference_error_user_message();
     assert!(message.contains("Something went wrong. Please try again."));
     assert!(message.contains("This error has been reported."));
-    assert!(
-        message.contains(
-            "<openhuman-link path=\"community/discord\">Report on Discord</openhuman-link>"
-        )
-    );
+    assert!(message
+        .contains("<openhuman-link path=\"community/discord\">Report on Discord</openhuman-link>"));
 }
 
 // ── Schema catalog ────────────────────────────────────────────
@@ -209,21 +206,18 @@ fn chat_schema_requires_client_thread_message() {
     assert!(required.contains(&"thread_id"));
     assert!(required.contains(&"message"));
     // model_override and temperature must be optional.
-    assert!(
-        s.inputs
-            .iter()
-            .any(|f| f.name == "model_override" && !f.required)
-    );
-    assert!(
-        s.inputs
-            .iter()
-            .any(|f| f.name == "temperature" && !f.required)
-    );
-    assert!(
-        s.inputs
-            .iter()
-            .any(|f| f.name == "profile_id" && !f.required)
-    );
+    assert!(s
+        .inputs
+        .iter()
+        .any(|f| f.name == "model_override" && !f.required));
+    assert!(s
+        .inputs
+        .iter()
+        .any(|f| f.name == "temperature" && !f.required));
+    assert!(s
+        .inputs
+        .iter()
+        .any(|f| f.name == "profile_id" && !f.required));
 }
 
 #[test]

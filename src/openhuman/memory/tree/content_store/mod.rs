@@ -60,30 +60,17 @@ pub fn update_summary_tags(
 /// Already-existing files are skipped (immutable-body contract). Parent
 /// directories are created on demand.
 ///
-/// **Email chunks skip the disk write.** Their content already lives in
-/// the per-message raw archive at `<content_root>/raw/<source>/<ts>_<id>.md`,
-/// so a parallel copy in `<content_root>/email/<source>/<chunk_id>.md`
-/// would just duplicate bytes and clutter the Obsidian vault. We still
-/// emit a `StagedChunk` row with an empty `content_path` so the SQLite
-/// upsert proceeds — read paths fall back to the chunk's truncated SQL
-/// `content` column or to the raw archive when they need full bodies.
+/// Email chunks are written here too, even when Gmail later adds
+/// `raw_refs_json` pointing at the raw archive. The raw refs are a
+/// richer source for full-body reconstruction, but the chunk file is
+/// the durable fallback that keeps extract/seal jobs readable if a
+/// provider falls back to a non-raw archive ingest path.
 ///
 /// `content_root` — absolute path to the root of the content store.
 pub fn stage_chunks(content_root: &Path, chunks: &[Chunk]) -> anyhow::Result<Vec<StagedChunk>> {
-    use crate::openhuman::memory::tree::types::SourceKind;
     let mut staged = Vec::with_capacity(chunks.len());
 
     for chunk in chunks {
-        if chunk.metadata.source_kind == SourceKind::Email {
-            // Body lives in raw/<source>/<ts>_<id>.md — no chunk file.
-            staged.push(StagedChunk {
-                chunk: chunk.clone(),
-                content_path: String::new(),
-                content_sha256: String::new(),
-            });
-            continue;
-        }
-
         let source_kind = chunk.metadata.source_kind.as_str();
         let source_id = &chunk.metadata.source_id;
 
@@ -176,6 +163,34 @@ mod tests {
             assert!(!s.content_path.starts_with('/'));
             assert!(s.content_path.contains('/'));
         }
+    }
+
+    #[test]
+    fn stage_chunks_writes_email_files_as_raw_ref_fallback() {
+        let dir = TempDir::new().unwrap();
+        let mut chunk = sample_chunk(0);
+        chunk.metadata.source_kind = SourceKind::Email;
+        chunk.metadata.source_id = "gmail:alice@example.com|bob@example.com".into();
+
+        let staged = stage_chunks(dir.path(), &[chunk]).unwrap();
+
+        assert_eq!(staged.len(), 1);
+        let staged = &staged[0];
+        let abs = paths::chunk_abs_path(
+            dir.path(),
+            staged.chunk.metadata.source_kind.as_str(),
+            &staged.chunk.metadata.source_id,
+            &staged.chunk.id,
+        );
+        assert!(
+            abs.exists(),
+            "email fallback file must exist: {}",
+            abs.display()
+        );
+        assert!(!staged.content_path.is_empty());
+        assert_eq!(staged.content_sha256.len(), 64);
+        let body = read::read_chunk_file(&abs).unwrap().body;
+        assert!(body.contains("Message 0"));
     }
 
     #[test]

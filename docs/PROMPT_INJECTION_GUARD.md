@@ -58,12 +58,12 @@ If action is `block` or `review_blocked`, request processing is stopped and no p
 
 - Advisory pre-submit validation in `app/src/chat/promptInjectionGuard.ts`.
 - Composer integration in `app/src/pages/Conversations.tsx`.
-- `block` verdict: advisory warning is shown client-side; backend remains authoritative for final enforcement.
-- `review` verdict: advisory warning shown; backend still enforces final decision.
+- `block` verdict: advisory warning is shown client-side; the Rust core remains authoritative for final enforcement.
+- `review` verdict: advisory warning shown; the Rust core still enforces final decision.
 
 ## Logging and Privacy
 
-Each backend decision logs:
+Each core decision logs:
 
 - `request_id`
 - `user_id`

@@ -63,9 +63,7 @@ describe('ComposioPanel', () => {
     renderWithProviders(<Panel />);
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
 
-    const backendRadio = screen.getByLabelText(
-      'Managed (OpenHuman handles it for you)'
-    ) as HTMLInputElement;
+    const backendRadio = screen.getByLabelText('Legacy backend (disabled)') as HTMLInputElement;
     const directRadio = screen.getByLabelText(
       'Direct (bring your own API key)'
     ) as HTMLInputElement;
@@ -90,7 +88,9 @@ describe('ComposioPanel', () => {
     expect(screen.getByLabelText('Composio API key')).toBeInTheDocument();
     // "Key currently stored" indicator shows.
     expect(
-      screen.getByText('A Composio API key is currently stored on this device.')
+      screen.getByText(
+        "A Composio API key is currently stored in the active core's encrypted credential store."
+      )
     ).toBeInTheDocument();
   });
 
@@ -143,7 +143,7 @@ describe('ComposioPanel', () => {
 
     // The warning dialog surfaces all three commitments the user is
     // signing up for — losing existing integrations, needing a personal
-    // Composio account, and the trigger-webhook gap.
+    // Composio account, and configuring ngrok for trigger webhooks.
     const dialog = screen.getByRole('alertdialog');
     expect(dialog).toBeInTheDocument();
     expect(screen.getByText(/Switching to Direct mode/i)).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('ComposioPanel', () => {
     // Scope the app.composio.dev lookup to the dialog because the same
     // hostname also appears in the API-key field's helper text above.
     expect(dialog.textContent ?? '').toMatch(/app\.composio\.dev/i);
-    expect(screen.getByText(/triggers.*don.?t fire in Direct mode/i)).toBeInTheDocument();
+    expect(screen.getByText(/configure the ngrok receiver/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
@@ -182,7 +182,7 @@ describe('ComposioPanel', () => {
     renderWithProviders(<Panel />);
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
 
-    fireEvent.click(screen.getByLabelText('Managed (OpenHuman handles it for you)'));
+    fireEvent.click(screen.getByLabelText('Legacy backend (disabled)'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     // No dialog appeared — clearApiKey was invoked straight through.
@@ -243,7 +243,7 @@ describe('ComposioPanel', () => {
     renderWithProviders(<Panel />);
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
 
-    fireEvent.click(screen.getByLabelText('Managed (OpenHuman handles it for you)'));
+    fireEvent.click(screen.getByLabelText('Legacy backend (disabled)'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
@@ -279,17 +279,15 @@ describe('ComposioPanel', () => {
     renderWithProviders(<Panel />);
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
 
-    expect(screen.getByLabelText('Managed (OpenHuman handles it for you)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Legacy backend (disabled)')).toBeInTheDocument();
   });
 
-  test('trigger-webhook gap is surfaced in the Direct mode description', async () => {
+  test('direct mode description mentions auth-config creation and trigger receiver setup', async () => {
     const Panel = await importPanel();
     renderWithProviders(<Panel />);
     await waitFor(() => expect(screen.queryByText('Loading…')).toBeNull());
 
-    // The "not yet routed" copy is the contract surface that flags the
-    // direct-mode trigger gap to the user. If this assertion breaks,
-    // update the catalog entry in about_app/catalog.rs in lockstep.
-    expect(screen.getByText(/not yet routed/i)).toBeInTheDocument();
+    expect(screen.getByText(/missing managed auth configs automatically/i)).toBeInTheDocument();
+    expect(screen.getByText(/ngrok receiver/i)).toBeInTheDocument();
   });
 });

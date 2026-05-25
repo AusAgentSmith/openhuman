@@ -41,7 +41,7 @@ OpenHuman is built as a native application rather than a web wrapper for three r
 └──────────────────────────────────────────────────┘
  │ JSON-RPC ↕
 ┌──────────────────────────────────────────────────┐
-│ Rust core (`openhuman` sidecar) │
+│ Rust core (`openhuman-core`) │
 │ • Memory Tree, integrations, auto-fetch │
 │ • Model router, TokenJuice, native tools │
 │ • Voice (STT in, TTS out, Meet agent) │
@@ -58,7 +58,7 @@ The shell is a delivery vehicle (windowing, process lifecycle, IPC). All product
 
 ## Real-time communication
 
-The desktop app maintains a persistent connection to the OpenHuman backend. Responses stream as they are generated; outputs appear progressively, not after a hang. If the network drops, the app reconnects automatically with progressive backoff.
+The desktop app maintains a persistent connection to the active core: the embedded local core in Local mode, or a self-hosted `openhuman-core` endpoint in Cloud mode. Responses stream as they are generated; outputs appear progressively, not after a hang. If the connection drops, the app reconnects automatically with progressive backoff.
 
 ***
 
@@ -72,4 +72,4 @@ Auto-fetch and live LLM calls require connectivity. When the network returns, th
 
 ## Auto-update
 
-The desktop shell auto-updates itself via Tauri's updater plugin against a manifest published on GitHub Releases. The OpenHuman core sidecar ships inside the same bundle, so a shell update upgrades both.
+The closedhuman fork does not currently consume upstream auto-update feeds. Release artifacts must be upgraded through the fork's release process, and a Cloud-mode desktop must match the server core version enforced by the boot check.

@@ -1,11 +1,11 @@
 ---
-description: A native search tool the agent can call directly - no API key required.
+description: A native search tool the agent can call through the active core.
 icon: magnifying-glass
 ---
 
 # Web Search
 
-The agent can search the live web on its own. Backed by a server-side proxy (Parallel) so you don't carry a search API key, the tool returns titles, snippets, and URLs ready to follow up on.
+The agent can search the live web on its own when the active core has a search provider configured. The tool returns titles, snippets, and URLs ready to follow up on. There is no OpenHuman-hosted search proxy in the closedhuman fork.
 
 ## What it's good for
 

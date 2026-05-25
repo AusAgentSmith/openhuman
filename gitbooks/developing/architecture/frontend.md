@@ -7,7 +7,7 @@ icon: browsers
 
 # Frontend (app/src/)
 
-The OpenHuman desktop UI: a Vite + React 19 tree under `app/src/` (Yarn workspace `openhuman-app`). It uses Redux Toolkit with persistence for session state, talks to the backend over REST + Socket.io, and calls the Rust core sidecar via JSON-RPC (`coreRpcClient` / Tauri `core_rpc_relay`). Heavy logic lives in the core, not here.
+The OpenHuman desktop UI: a Vite + React 19 tree under `app/src/` (pnpm workspace `openhuman-app`). It uses Redux Toolkit with persistence for UI/session state and talks to the active Rust core endpoint through `services/coreRpcClient`. The active core can be the local embedded Tauri core or a remote self-hosted `openhuman-core` server selected in `BootCheckGate`. Heavy logic lives in the core, not here.
 
 This is one consolidated reference. Use the table of contents above (or your reader's outline) to jump between sections.
 
@@ -17,8 +17,8 @@ This is one consolidated reference. Use the table of contents above (or your rea
 | ------------------------------------------------- | --------------------------------------------- |
 | [Architecture](frontend.md#architecture-overview) | Provider chain, build, layout, conventions    |
 | [State Management](frontend.md#state-management)  | Redux Toolkit slices, selectors, persistence  |
-| [Services Layer](frontend.md#services-layer)      | `coreRpcClient`, `socketService`, `coreRpcClient` |
-| [Providers](frontend.md#providers)                | `User`, `Socket`, `AI`, `Skill` providers     |
+| [Services Layer](frontend.md#services-layer)      | `coreRpcClient`, `socketService`, domain API clients |
+| [Providers](frontend.md#providers)                | Core state, socket, chat runtime, routing providers |
 | [Pages & Routing](frontend.md#pages-routing)      | `HashRouter`, route guards, main routes       |
 | [Components](frontend.md#components)              | UI / settings component patterns              |
 | [Hooks & Utilities](frontend.md#hooks-utilities)  | Shared hooks, helpers, config                 |
@@ -38,7 +38,7 @@ app/src/
 ├── AppRoutes.tsx           # Route table + guards
 ├── main.tsx                # Entry (Sentry, store, styles)
 ├── store/                  # Redux slices and selectors
-├── providers/              # UserProvider, SocketProvider, AIProvider, SkillProvider
+├── providers/              # CoreStateProvider, SocketProvider, ChatRuntimeProvider
 ├── services/               # coreRpcClient, socketService, coreRpcClient, api/*
 ├── lib/                    # AI loaders, MCP helpers, skills sync, etc.
 ├── pages/                  # Route-level screens
@@ -55,8 +55,8 @@ app/src/
 OpenHuman’s desktop UI is a **React 19** app (`app/src/`) that:
 
 * Uses **Redux Toolkit** with persistence for session-related state
-* Connects to the backend with **REST** (`coreRpcClient`) and **Socket.io** (`socketService`)
-* Calls the **Rust core** process over HTTP via **`coreRpcClient`** / Tauri **`core_rpc_relay`** (JSON-RPC methods implemented in repo root `src/openhuman/`, exposed through `core_server`)
+* Calls the **Rust core** over HTTP via **`coreRpcClient`**. Runtime resolution picks either the local embedded core or the configured remote `/rpc` endpoint.
+* Connects to the active core's **Socket.io** surface with `socketService` after the core state snapshot is available.
 * Loads **AI prompts** from bundled `src/openhuman/agent/prompts` (repo root) and from Tauri **`ai_get_config`** when packaged
 * Uses a **minimal MCP-style** helper layer under `lib/mcp/` (transport, validation), not a large in-repo Telegram MCP tool bundle
 
@@ -65,7 +65,7 @@ OpenHuman’s desktop UI is a **React 19** app (`app/src/`) that:
 | File                    | Purpose                                                                              |
 | ----------------------- | ------------------------------------------------------------------------------------ |
 | `app/src/main.tsx`      | React root, Sentry boundary, store, global styles                                    |
-| `app/src/App.tsx`       | Provider chain: Redux → PersistGate → User → Socket → AI → Skill → Router            |
+| `app/src/App.tsx`       | Provider chain: Redux → PersistGate → BootCheckGate → CoreState → Socket → ChatRuntime → Router |
 | `app/src/AppRoutes.tsx` | `HashRouter` routes, `ProtectedRoute` / `PublicRoute`, onboarding and mnemonic gates |
 
 ### Provider chain
@@ -108,24 +108,24 @@ App.tsx
 
 ```
 services/
-  ├─ coreRpcClient        → REST to a URL resolved at runtime via `services/coreRpcClient#getCoreRpcUrl`
-  ├─ coreRpcClient       → Calls `openhuman.app_state_snapshot`; falls back to VITE_CORE_RPC_URL only outside Tauri
+  ├─ coreRpcClient    → JSON-RPC HTTP to the active core URL
+  ├─ bootCheckService → Tauri runtime configuration + boot-check transport
   ├─ socketService    → Socket.io; realtime + MCP-style envelopes
-  └─ coreRpcClient    → HTTP to local openhuman core (JSON-RPC), used with Tauri relay
+  └─ api/*            → domain clients layered on coreRpcClient
 ```
 
 #### Runtime config precedence
 
 The desktop app does not bake the core RPC URL or the API host into the bundle as a hard requirement. At runtime the app resolves them in this order (highest first):
 
-1. **Login-screen RPC URL field**, saved via `utils/configPersistence` and restored on next launch. End users configure the sidecar address here, not by hand-editing `config.toml` or `.env` files.
-2. **Tauri `core_rpc_url` command**, the port the bundled sidecar is listening on for this process.
-3. **`VITE_OPENHUMAN_CORE_RPC_URL`**, build-time fallback for development.
+1. **BootCheck runtime picker**, saved via `utils/configPersistence` as `openhuman_core_rpc_url`, `openhuman_core_rpc_token`, and `openhuman_core_mode`. Cloud URLs can be a server origin or a full `/rpc` endpoint; `normalizeCoreRpcUrl` normalizes origins to `/rpc`.
+2. **Tauri `core_rpc_url` / `core_rpc_token` commands**, returning the active host-side URL/token. Local mode is loopback + per-launch token; Cloud mode is the configured remote URL/token after `configure_core_rpc_connection`.
+3. **`VITE_OPENHUMAN_CORE_RPC_URL`**, build-time fallback for development and non-Tauri previews.
 4. The hardcoded `http://127.0.0.1:7788/rpc` default.
 
-Once the RPC handshake succeeds, `services/coreRpcClient` calls `openhuman.app_state_snapshot` to pull `api_url` (and other safe client fields) from the loaded core `Config`. `VITE_CORE_RPC_URL` is only used as a web fallback when the app runs outside Tauri.
+Once the runtime check succeeds, `CoreStateProvider` calls `openhuman.app_state_snapshot` to pull safe client fields from the active core. Installed desktop artifacts do not read repo `.env` files, so remote server selection must be persisted through the picker rather than relying on `OPENHUMAN_CORE_RPC_URL` in a dev shell.
 
-Components that need the core RPC URL should call `core RPC helpers` (or `core RPC helpers` from non-React code), they must not import the static `CORE_RPC_URL` constant from `utils/config`, which represents the build-time value only.
+Components or services that need the core RPC URL should call `getCoreRpcUrl`, `getCoreHttpBaseUrl`, or `callCoreRpc`. They must not import the static `CORE_RPC_URL` constant from `utils/config` for product calls; it is only the build-time fallback.
 
 ### Related docs
 
@@ -395,56 +395,49 @@ The application uses singleton services for external communication. This prevent
 
 ```
 app/src/services/
-  ├─ coreRpcClient (HTTP REST)
-  │   ├─ reads auth.token from Redux
-  │   └─ calls VITE_CORE_RPC_URL (see utils/config.ts)
-  ├─ socketService (Socket.io)
-  │   ├─ web: JS client
-  │   └─ Tauri: coordinates with Rust-side socket via utils/tauriSocket.ts
   ├─ coreRpcClient.ts
-  │   └─ invoke('core_rpc_relay', …) → local openhuman core (JSON-RPC)
-  └─ services/api/* - domain REST modules (auth, user, teams, …)
+  │   ├─ resolves active core RPC URL/token
+  │   └─ POSTs JSON-RPC to local embedded or remote core
+  ├─ bootCheckService.ts
+  │   └─ syncs Local/Cloud runtime mode into the Tauri host
+  ├─ socketService.ts
+  │   └─ derives Socket.io base URL from the active core RPC URL
+  └─ services/api/* - domain clients layered on JSON-RPC
 ```
 
-### API Client (`services/coreRpcClient.ts`)
+### Core RPC Client (`services/coreRpcClient.ts`)
 
-HTTP REST client for backend communication.
+HTTP JSON-RPC client for core communication.
 
 #### Features
 
 * Fetch-based implementation
-* Auto-injects JWT from Redux store
+* Resolves the active URL from stored Cloud preference, Tauri `core_rpc_url`, `VITE_OPENHUMAN_CORE_RPC_URL`, then the loopback default
+* Resolves the bearer token from stored Cloud preference or Tauri `core_rpc_token`
 * Typed request/response handling
 * Error handling with typed errors
 
 #### Usage
 
 ```typescript
-import coreRpcClient from "../services/coreRpcClient";
+import { callCoreRpc } from "../services/coreRpcClient";
 
-// GET request
-const user = await coreRpcClient.get<User>("/users/me");
-
-// POST request
-const result = await coreRpcClient.post<LoginResponse>("/auth/login", {
-  email,
-  password,
-});
-
-// With custom headers
-const data = await coreRpcClient.get<Data>("/endpoint", {
-  headers: { "X-Custom": "value" },
+const result = await callCoreRpc<MyType>({
+  method: "openhuman.some_method",
+  params: { foo: "bar" },
 });
 ```
 
 #### Configuration
 
-Reads `VITE_CORE_RPC_URL` from environment or uses default:
+`VITE_OPENHUMAN_CORE_RPC_URL` is a build-time fallback only:
 
 ```typescript
 const CORE_RPC_URL =
-  import.meta.env.VITE_CORE_RPC_URL || "https://api.example.com";
+  import.meta.env.VITE_OPENHUMAN_CORE_RPC_URL || "http://127.0.0.1:7788/rpc";
 ```
+
+Do not call this constant directly for product traffic; use `getCoreRpcUrl` / `callCoreRpc` so Cloud mode and Tauri-provided local tokens are honored.
 
 ### API Endpoints (`services/api/`)
 
@@ -556,7 +549,7 @@ useEffect(() => {
 #### Configuration
 
 ```typescript
-const socket = io(CORE_RPC_URL, {
+const socket = io(await getCoreHttpBaseUrl(), {
   auth: { token },
   transports: ["polling", "websocket"],
   reconnection: true,
@@ -567,11 +560,11 @@ const socket = io(CORE_RPC_URL, {
 
 #### Socket event contract (Tauri)
 
-In Tauri mode, connection and events are bridged through **`utils/tauriSocket.ts`** (`setupTauriSocketListeners`, `connectRustSocket`, etc.). See `providers/SocketProvider.tsx` for the full flow (including daemon lifecycle hooks).
+Socket URLs are derived from `getCoreRpcUrl()` so Local and Cloud runtime modes use the same active endpoint as JSON-RPC. See `providers/SocketProvider.tsx` for the full flow.
 
 ### Core RPC (`services/coreRpcClient.ts`)
 
-The desktop app runs a separate **`openhuman`** Rust binary (staged under `app/src-tauri/binaries/`). The UI calls JSON-RPC methods on that process through Tauri:
+The desktop app calls JSON-RPC on the active core endpoint. In Local mode that endpoint is the embedded in-process Rust core inside Tauri. In Cloud mode it is the configured remote `openhuman-core` server:
 
 ```typescript
 import { callCoreRpc } from "../services/coreRpcClient";
@@ -581,11 +574,10 @@ const result = await callCoreRpc<MyType>({
   params: {
     /* … */
   },
-  serviceManaged: false, // true if the relay should ensure the systemd/launchd-style service
 });
 ```
 
-Implementation: `invoke('core_rpc_relay', { request: { method, params, serviceManaged } })` → `app/src-tauri/src/commands/core_relay.rs` → HTTP client in `app/src-tauri/src/core_rpc.rs`.
+Implementation: `coreRpcClient` resolves URL/token, sends an authenticated JSON-RPC HTTP POST, and normalizes JSON-RPC errors into `CoreRpcError`. Tauri-side callers use `app/src-tauri/src/core_rpc.rs` so native scanner/event paths share the same active URL/token.
 
 ### Service integration with providers
 
@@ -1949,8 +1941,9 @@ function SettingsModal() {
 Build-time environment variable access. These constants only carry the value that was baked into the bundle, for the **runtime** URL the app actually talks to, see `services/coreRpcClient` and `hooks/useBackendUrl` below.
 
 ```typescript
-// Build-time fallback only (used outside Tauri).
-export const CORE_RPC_URL = import.meta.env.VITE_CORE_RPC_URL || 'https://api.example.com';
+// Build-time fallback only.
+export const CORE_RPC_URL =
+  import.meta.env.VITE_OPENHUMAN_CORE_RPC_URL || 'http://127.0.0.1:7788/rpc';
 
 // Debug mode
 export const DEBUG = import.meta.env.VITE_DEBUG === 'true';
@@ -1966,16 +1959,13 @@ if (DEBUG) {
 }
 ```
 
-> **Do not** import `CORE_RPC_URL` directly to make API calls. Resolve the URL at runtime so the core sidecar's `api_url` (set on the login screen via `openhuman.app_state_snapshot`) takes effect:
+> **Do not** import `CORE_RPC_URL` directly to make API calls. Resolve the URL at runtime so Local vs Cloud runtime selection, `/rpc` normalization, and bearer-token selection take effect:
 >
 > ```typescript
-> // React components
-> import { useBackendUrl } from '../hooks/useBackendUrl';
-> const coreRpcClient = core RPC helpers;
+> import { callCoreRpc, getCoreRpcUrl } from '../services/coreRpcClient';
 >
-> // Non-React code
-> import { getCoreRpcUrl } from '../services/coreRpcClient';
-> const coreRpcClient = await core RPC helpers;
+> const url = await getCoreRpcUrl();
+> const snapshot = await callCoreRpc({ method: 'openhuman.app_state_snapshot' });
 > ```
 
 #### Deep Link (`utils/deeplink.ts`)

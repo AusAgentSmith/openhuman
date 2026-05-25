@@ -1,11 +1,11 @@
 //! Config load/save and environment variable overrides.
 
 use super::{
-    Config, UpdateRestartStrategy,
     proxy::{
-        ProxyScope, normalize_no_proxy_list, normalize_proxy_url_option, normalize_service_list,
-        parse_proxy_enabled, parse_proxy_scope, set_runtime_proxy_config,
+        normalize_no_proxy_list, normalize_proxy_url_option, normalize_service_list,
+        parse_proxy_enabled, parse_proxy_scope, set_runtime_proxy_config, ProxyScope,
     },
+    Config, UpdateRestartStrategy,
 };
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -391,7 +391,11 @@ pub fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
     let contents = std::fs::read_to_string(&path).ok()?;
     let state: ActiveUserState = toml::from_str(&contents).ok()?;
     let id = state.user_id.trim().to_string();
-    if id.is_empty() { None } else { Some(id) }
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
 }
 
 /// Writes the active user id to `{default_openhuman_dir}/active_user.toml`.

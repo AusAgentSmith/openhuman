@@ -5,10 +5,10 @@
 //
 // Why a separate panel from ComposioTriagePanel:
 //   - ComposioTriagePanel governs the per-trigger LLM triage opt-out,
-//     a behavior that lives entirely inside the backend-proxied
+//     a behavior that lives entirely inside the direct-mode trigger
 //     pipeline. Mixing the BYO-key controls into it would conflate two
-//     orthogonal concerns and confuse users (triggers don't work at all
-//     in direct mode — separately calling that out is cleaner).
+//     orthogonal concerns and confuse users (trigger delivery also needs
+//     the ngrok receiver configured in Settings -> Triggers).
 //   - PR1 already owns LocalModelPanel and PR2 owns VoicePanel; this PR
 //     stays in its lane by introducing a new file rather than editing
 //     BackendProviderPanel / LocalModelPanel / VoicePanel.
@@ -173,8 +173,8 @@ const ComposioPanel = ({ embedded = false }: ComposioPanelProps = {}) => {
     if (isBackendToDirectTransition()) {
       // [composio-direct] Show the confirmation step instead of saving
       // straight away. The user-visible consequences (existing
-      // integrations disappear, triggers don't fire) aren't obvious
-      // from the radio toggle alone.
+      // integrations disappear, trigger webhooks need ngrok setup) aren't
+      // obvious from the radio toggle alone.
       console.debug('[composio-direct] Backend → Direct transition pending user confirmation');
       setConfirmGate('awaiting');
       return;

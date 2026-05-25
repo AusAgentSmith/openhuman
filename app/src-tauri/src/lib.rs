@@ -76,8 +76,38 @@ fn core_rpc_url() -> String {
 /// with no file I/O or timing issues.
 #[tauri::command]
 fn core_rpc_token(state: tauri::State<'_, core_process::CoreProcessHandle>) -> String {
-    log::debug!("[auth] core_rpc_token: returning token to frontend");
+    if crate::core_rpc::is_remote_connection() {
+        log::debug!("[auth] core_rpc_token: returning configured remote token to frontend");
+        return crate::core_rpc::remote_rpc_token_value().unwrap_or_default();
+    }
+
+    log::debug!("[auth] core_rpc_token: returning local embedded token to frontend");
     state.inner().rpc_token().to_string()
+}
+
+#[tauri::command]
+async fn configure_core_rpc_connection(
+    state: tauri::State<'_, core_process::CoreProcessHandle>,
+    url: Option<String>,
+    token: Option<String>,
+) -> Result<(), String> {
+    let trimmed_url = url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(url) = trimmed_url {
+        let token = token.unwrap_or_default();
+        let _guard = state.inner().restart_lock().await;
+        crate::core_rpc::configure_remote_connection(url, &token)?;
+        state.inner().shutdown().await;
+        log::info!("[core] remote core configured; embedded core is stopped");
+        return Ok(());
+    }
+
+    let _guard = state.inner().restart_lock().await;
+    crate::core_rpc::configure_local_connection(&state.inner().rpc_url());
+    log::info!("[core] local embedded core configured; waiting for explicit start");
+    Ok(())
 }
 
 #[tauri::command]
@@ -245,6 +275,12 @@ async fn restart_core_process(
     state: tauri::State<'_, core_process::CoreProcessHandle>,
 ) -> Result<(), String> {
     log::info!("[core] restart_core_process: command invoked from frontend");
+    if crate::core_rpc::is_remote_connection() {
+        return Err(
+            "A remote core is configured. Restart it on the server, or pick Local runtime first."
+                .to_string(),
+        );
+    }
     let _guard = state.inner().restart_lock().await;
     log::debug!("[core] restart_core_process: acquired restart lock");
     state.inner().restart().await
@@ -298,6 +334,11 @@ async fn reset_local_data(
     state: tauri::State<'_, core_process::CoreProcessHandle>,
 ) -> Result<(), String> {
     log::info!("[core] reset_local_data: command invoked from frontend");
+    if crate::core_rpc::is_remote_connection() {
+        return Err(
+            "Reset local data is only available for the local embedded runtime.".to_string(),
+        );
+    }
 
     // ── 1. Ask the core for the paths it would remove ────────────────────
     //
@@ -2306,7 +2347,10 @@ pub fn run() {
 
             let core_handle =
                 core_process::CoreProcessHandle::new(core_process::default_core_port());
-            std::env::set_var("OPENHUMAN_CORE_RPC_URL", core_handle.rpc_url());
+            crate::core_rpc::initialize_connection_from_env_or_local(
+                &core_handle.rpc_url(),
+                core_handle.port(),
+            );
 
             // Expose the shared CEF cookies SQLite path to the core sidecar
             // so `check_onboarding_status` can detect which webview
@@ -2766,6 +2810,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_rpc_url,
             core_rpc_token,
+            configure_core_rpc_connection,
             overlay_parent_rpc_url,
             process_diagnostics_list_owned,
             check_core_update,

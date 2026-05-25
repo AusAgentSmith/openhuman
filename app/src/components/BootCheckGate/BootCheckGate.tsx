@@ -26,6 +26,7 @@ import {
   clearStoredCoreMode,
   clearStoredCoreToken,
   isLocalOrPrivateNetworkHost,
+  normalizeCoreRpcUrl,
   storeCoreMode,
   storeCoreToken,
   storeRpcUrl,
@@ -152,7 +153,7 @@ function ModePicker({ onConfirm }: PickerProps) {
     }
     setTokenError(null);
 
-    return { url: trimmedUrl, token: trimmedToken };
+    return { url: normalizeCoreRpcUrl(trimmedUrl), token: trimmedToken };
   };
 
   const handleTestConnection = async () => {
@@ -717,11 +718,17 @@ export default function BootCheckGate({ children }: BootCheckGateProps) {
         await transport.callRpc('openhuman.service_stop', {});
         await transport.callRpc('openhuman.service_uninstall', {});
         log('[boot-check] gate — daemon removed, re-running check');
-      } else if (result.kind === 'outdatedLocal' || result.kind === 'noVersionMethod') {
+      } else if (
+        result.kind === 'outdatedLocal' ||
+        (result.kind === 'noVersionMethod' && coreMode.kind !== 'cloud')
+      ) {
         log('[boot-check] gate — restarting local core');
         await transport.invokeCmd('restart_core_process', {});
         log('[boot-check] gate — local core restarted');
-      } else if (result.kind === 'outdatedCloud') {
+      } else if (
+        result.kind === 'outdatedCloud' ||
+        (result.kind === 'noVersionMethod' && coreMode.kind === 'cloud')
+      ) {
         log('[boot-check] gate — triggering cloud core update');
         await transport.callRpc('openhuman.update_run', {});
         log('[boot-check] gate — cloud core update triggered');

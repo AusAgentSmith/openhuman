@@ -10,6 +10,8 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { BootCheckTransport } from '../lib/bootCheck';
+import type { CoreMode } from '../store/coreModeSlice';
+import { isTauri } from '../utils/tauriCommands/common';
 import { callCoreRpc } from './coreRpcClient';
 
 async function callRpc<T>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -20,4 +22,19 @@ async function invokeCmd<T>(cmd: string, args?: Record<string, unknown>): Promis
   return invoke<T>(cmd, args);
 }
 
-export const bootCheckTransport: BootCheckTransport = { callRpc, invokeCmd };
+async function configureCoreConnection(mode: CoreMode): Promise<void> {
+  if (!isTauri()) return;
+
+  if (mode.kind === 'cloud') {
+    await invoke('configure_core_rpc_connection', { url: mode.url, token: mode.token ?? '' });
+    return;
+  }
+
+  await invoke('configure_core_rpc_connection', { url: null, token: null });
+}
+
+export const bootCheckTransport: BootCheckTransport = {
+  callRpc,
+  invokeCmd,
+  configureCoreConnection,
+};

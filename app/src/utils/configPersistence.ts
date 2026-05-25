@@ -183,6 +183,21 @@ export function normalizeRpcUrl(url: string): string {
 }
 
 /**
+ * Normalize a user-entered core endpoint to the JSON-RPC URL. Users often
+ * paste the server origin from deployment docs (`https://host` or
+ * `http://host:7788`); the client must POST to `/rpc`.
+ */
+export function normalizeCoreRpcUrl(url: string): string {
+  const parsed = new URL(url.trim());
+  if (parsed.pathname === '' || parsed.pathname === '/') {
+    parsed.pathname = '/rpc';
+  }
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+/**
  * Get the default RPC URL.
  *
  * @returns The default RPC URL

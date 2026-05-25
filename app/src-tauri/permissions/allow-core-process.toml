@@ -6,6 +6,7 @@ description = "Core RPC URL, sidecar restart, dictation hotkey, webview-account,
 allow = [
     "core_rpc_url",
     "core_rpc_token",
+    "configure_core_rpc_connection",
     "restart_core_process",
     # `start_core_process` is invoked by BootCheckGate after the user picks
     # Local mode, before redux-persist hydrates the rest of the app (#1316).

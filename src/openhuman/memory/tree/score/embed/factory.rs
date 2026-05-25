@@ -10,7 +10,10 @@
 //!    against [`ollama_base_url`] with the user's chosen
 //!    `config.local_ai.embedding_model_id`. This is the path driven by
 //!    the "Memory embeddings" checkbox in Local AI Settings.
-//! 3. **Default** — hard error. Embeddings must be configured explicitly
+//! 3. **Non-strict fallback** — when no embedding provider is configured and
+//!    `memory_tree.embedding_strict = false`, use [`InertEmbedder`] so the
+//!    memory tree can still build without semantic reranking.
+//! 4. **Strict default** — hard error. Embeddings must be configured explicitly
 //!    through local Ollama or an endpoint/model override.
 //!
 //! NOTE on dimensions: the memory tree on-disk format is hard-coded at
@@ -20,9 +23,6 @@
 //! `expected N dims, got M` error. Switching the local model picker in
 //! Local AI Settings is the fix.
 //!
-//! The historical `InertEmbedder` (zero vectors) path is retained for
-//! tests only — it is no longer the production lax-mode fallback.
-//!
 //! Env var overrides applied in [`crate::openhuman::config::load`]:
 //! - `OPENHUMAN_MEMORY_EMBED_ENDPOINT`
 //! - `OPENHUMAN_MEMORY_EMBED_MODEL`
@@ -30,7 +30,7 @@
 
 use anyhow::Result;
 
-use super::{Embedder, OllamaEmbedder};
+use super::{Embedder, InertEmbedder, OllamaEmbedder};
 use crate::openhuman::config::Config;
 use crate::openhuman::inference::local::ollama_base_url;
 
@@ -75,6 +75,12 @@ pub fn build_embedder_from_config(config: &Config) -> Result<Box<dyn Embedder>> 
                     model, endpoint, timeout_ms
                 );
                 Ok(Box::new(OllamaEmbedder::new(endpoint, model, timeout_ms)))
+            } else if !tree_cfg.embedding_strict {
+                log::warn!(
+                    "[memory_tree::embed::factory] no embedding provider configured; \
+                     using inert zero-vector embedder because memory_tree.embedding_strict=false"
+                );
+                Ok(Box::new(InertEmbedder::new()))
             } else {
                 anyhow::bail!(
                     "No embedding provider configured. Enable local AI embeddings or set \
@@ -122,23 +128,23 @@ mod tests {
     }
 
     #[test]
-    fn unset_endpoint_without_provider_errors() {
+    fn unset_endpoint_without_provider_uses_inert_when_not_strict() {
         let (_tmp, mut cfg) = test_config();
         cfg.memory_tree.embedding_endpoint = None;
         cfg.memory_tree.embedding_model = None;
         cfg.memory_tree.embedding_strict = false;
-        let err = expect_embedder_err(build_embedder_from_config(&cfg), "unset provider");
-        assert!(err.to_string().contains("No embedding provider configured"));
+        let e = build_embedder_from_config(&cfg).expect("inert fallback should build");
+        assert_eq!(e.name(), "inert");
     }
 
     #[test]
-    fn empty_strings_count_as_unset_and_error() {
+    fn empty_strings_count_as_unset_and_use_inert_when_not_strict() {
         let (_tmp, mut cfg) = test_config();
         cfg.memory_tree.embedding_endpoint = Some("".into());
         cfg.memory_tree.embedding_model = Some("".into());
         cfg.memory_tree.embedding_strict = false;
-        let err = expect_embedder_err(build_embedder_from_config(&cfg), "unset provider");
-        assert!(err.to_string().contains("No embedding provider configured"));
+        let e = build_embedder_from_config(&cfg).expect("inert fallback should build");
+        assert_eq!(e.name(), "inert");
     }
 
     #[test]
@@ -170,14 +176,15 @@ mod tests {
     }
 
     #[test]
-    fn local_ai_usage_off_without_provider_errors() {
+    fn local_ai_usage_off_without_provider_uses_inert_when_not_strict() {
         let (_tmp, mut cfg) = test_config();
         cfg.memory_tree.embedding_endpoint = None;
         cfg.memory_tree.embedding_model = None;
         cfg.local_ai.runtime_enabled = true;
         cfg.local_ai.usage.embeddings = false;
-        let err = expect_embedder_err(build_embedder_from_config(&cfg), "unset provider");
-        assert!(err.to_string().contains("No embedding provider configured"));
+        cfg.memory_tree.embedding_strict = false;
+        let e = build_embedder_from_config(&cfg).expect("inert fallback should build");
+        assert_eq!(e.name(), "inert");
     }
 
     #[test]

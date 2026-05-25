@@ -1,5 +1,5 @@
 ---
-description: How to build OpenHuman from source - toolchain, vendored Tauri CLI, sidecar staging.
+description: How to build OpenHuman from source - toolchain, vendored Tauri CLI, embedded/remote core runtime setup.
 icon: wrench
 ---
 
@@ -225,6 +225,8 @@ A previous Tauri build or `openhuman-core run` harness left a process listening 
 - If `GET /` identifies the listener as an OpenHuman core (JSON body with `"name": "openhuman"`), it is treated as a stale process from a previous run and proactively terminated (`SIGTERM`, then `SIGKILL` after 750ms on Unix; `taskkill /F /T /PID` on Windows). The Tauri host then spawns its own fresh embedded core.
 - If the listener is something else (or doesn't speak HTTP), startup fails loudly with the conflict surfaced in the log instead of silently attaching.
 - Set `OPENHUMAN_CORE_REUSE_EXISTING=1` to opt back into the legacy attach-to-anything behavior, useful when running `openhuman-core run` as a manual debugging harness.
+
+This stale-listener policy applies to **Local** runtime mode. In **Cloud** runtime mode, configure the remote URL/token through the BootCheck runtime picker; the Tauri host calls `configure_core_rpc_connection`, stores the active remote endpoint for host-side callers, and does not spawn or take over a loopback core.
 
 **Manual cleanup (still works)**
 

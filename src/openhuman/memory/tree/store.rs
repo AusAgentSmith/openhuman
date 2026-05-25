@@ -859,6 +859,26 @@ pub fn get_chunk_content_pointers(
     })
 }
 
+/// Return the SQLite `content` preview/body for `chunk_id`, if present.
+///
+/// After the MD-content migration this column is normally only a short
+/// preview, but legacy rows and broken fallback rows may have no
+/// `content_path`/`raw_refs_json` at all. Readers can use this as a
+/// last-resort body source instead of leaving jobs permanently stuck.
+pub fn get_chunk_content_preview(config: &Config, chunk_id: &str) -> Result<Option<String>> {
+    with_connection(config, |conn| {
+        let row = conn
+            .query_row(
+                "SELECT content FROM mem_tree_chunks WHERE id = ?1",
+                params![chunk_id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(row)
+    })
+}
+
 /// Return the `content_path` stored in SQLite for `chunk_id`, if any.
 pub fn get_chunk_content_path(config: &Config, chunk_id: &str) -> Result<Option<String>> {
     with_connection(config, |conn| {
@@ -870,7 +890,7 @@ pub fn get_chunk_content_path(config: &Config, chunk_id: &str) -> Result<Option<
             )
             .optional()?
             .flatten();
-        Ok(row)
+        Ok(row.filter(|path| !path.trim().is_empty()))
     })
 }
 

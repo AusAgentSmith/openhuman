@@ -16,7 +16,7 @@ OpenHuman is a **React + Tauri v2 desktop app** with a **Rust core** that does t
 ```
 ┌──────────────────────────────────────────────────┐
 │ Tauri shell (app/src-tauri/) │
-│ • windowing, OS integration, sidecar lifecycle │
+│ • windowing, OS integration, core runtime lifecycle │
 │ • CEF child webviews for integration providers │
 └──────────────────────────────────────────────────┘
  │ JSON-RPC (HTTP) ↕
@@ -46,7 +46,7 @@ OpenHuman is a **React + Tauri v2 desktop app** with a **Rust core** that does t
 
 ## Data flow
 
-1. **Connect**. OAuth into a [integration](../../features/integrations/README.md). Backend stores the token; core never sees it in plaintext.
+1. **Connect**. OAuth into an [integration](../../features/integrations/README.md). Native providers store tokens in the core's encrypted `AuthService`; long-tail Composio providers live in the user's Composio tenant.
 2. **Auto-fetch**. Every twenty minutes the [scheduler](../../features/obsidian-wiki/auto-fetch.md) walks every active connection and asks each native provider to sync.
 3. **Canonicalize**. Provider output (an email page, a GitHub diff, a Slack channel dump) is normalized into provenance-tagged Markdown.
 4. **Chunk**. Markdown is split into ≤3k-token deterministic chunks.
@@ -59,18 +59,18 @@ OpenHuman is a **React + Tauri v2 desktop app** with a **Rust core** that does t
 
 ## Privacy boundary
 
-Stays on your machine:
+Stays in the active core workspace:
 
 * The Memory Tree SQLite DB.
 * The Obsidian Markdown vault.
 * Audio capture buffers and any local model state.
 
-Goes through the OpenHuman backend (under one subscription):
+Goes to configured external services:
 
-* LLM calls (model providers).
-* Web search proxy.
-* Integration OAuth and tool proxying.
-* TTS streaming.
+* LLM calls to BYO providers or local runtimes.
+* Web search via configured search provider.
+* Composio direct-mode tool calls and webhooks.
+* TTS/STT provider traffic.
 
 See [Privacy & Security](../../features/privacy-and-security.md) for the full picture.
 

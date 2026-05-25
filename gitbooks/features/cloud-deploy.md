@@ -18,5 +18,16 @@ configured directly in `config.toml` and the encrypted credential store:
 native OAuth for Google/GitHub, direct Composio mode with the user's Composio
 API key, and BYO LLM providers under Settings -> AI.
 
+For Composio, configure the key from a connected desktop client under
+**Settings -> Developer Options -> Composio Routing (Direct Mode)**. The key is
+stored on the server workspace, so every client connected to that core sees the
+same integration tenant. Toolkit connect flows create missing Composio v3
+managed auth configs lazily before opening the hosted OAuth URL.
+
+Real-time Composio triggers also need **Settings -> Developer Options ->
+Composio Triggers (Direct Mode)**. Point a static ngrok domain at the server's
+local webhook receiver and store the ngrok authtoken in the same encrypted
+credential store.
+
 Do not expose the standalone core to the public internet. It is a local
 single-user service, not an OpenHuman product backend replacement.

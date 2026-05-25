@@ -2,7 +2,8 @@ import type { TranslationMap } from '../types';
 
 // Hindi (हिन्दी) chunk 5/5. Translated from chunks/en-5.ts.
 const hi5: TranslationMap = {
-  'settings.composio.apiKeyDesc': 'इस डिवाइस पर वर्तमान में एक Composio API कुंजी संग्रहीत है।',
+  'settings.composio.apiKeyDesc':
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'Composio API कुंजी',
   'settings.composio.apiKeyStored': 'API कुंजी संग्रहीत',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -11,7 +12,7 @@ const hi5: TranslationMap = {
   'settings.composio.confirmItem2':
     'अपने व्यक्तिगत Composio खाते के माध्यम से प्रत्येक एकीकरण को फिर से लिंक करना',
   'settings.composio.confirmItem3':
-    'नोट: Composio ट्रिगर्स (रीयल-टाइम वेबहुक्स) डायरेक्ट मोड में अभी फायर नहीं होते — केवल सिंक्रोनस टूल कॉल्स',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'आपको चाहिए:',
   'settings.composio.confirmSwitch': 'मैं समझ गया, डायरेक्ट पर स्विच करें',
   'settings.composio.confirmTitle': '⚠️ डायरेक्ट मोड पर स्विच कर रहे हैं',
@@ -21,10 +22,10 @@ const hi5: TranslationMap = {
     'Composio 250+ बाहरी ऐप्स को टूल्स के रूप में एकीकृत करता है जिन्हें आपका एजेंट कॉल कर सकता है। चुनें कि वे टूल कॉल कैसे रूट किए जाएँ।',
   'settings.composio.modeDirect': 'डायरेक्ट (अपनी API key लाएं)',
   'settings.composio.modeDirectDesc':
-    'कॉल सीधे backend.composio.dev पर जाती हैं। संप्रभु / ऑफ़लाइन-अनुकूल। टूल निष्पादन सिंक्रोनस रूप से कार्य करता है; रीयल-टाइम ट्रिगर वेबहुक्स अभी डायरेक्ट मोड में रूट नहीं हैं (फॉलो-अप मुद्दा)।',
-  'settings.composio.modeManaged': 'मैनेज्ड (OpenHuman मैनेज करेगा)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman हमारे बैकएंड के माध्यम से टूल कॉल्स को प्रॉक्सी करता है (अनुशंसित)। प्रमाणीकरण ब्रोकर किया जाता है; आप कभी भी Composio API कुंजी पेस्ट नहीं करते। वेबहुक्स पूरी तरह से रूट किए जाते हैं।',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'रूटिंग मोड',
   'settings.composio.saveErrorNoKey':
     'सहेजने में विफल। डायरेक्ट मोड के लिए गैर-रिक्त API कुंजी आवश्यक है।',

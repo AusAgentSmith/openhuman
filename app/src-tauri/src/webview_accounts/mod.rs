@@ -626,14 +626,13 @@ async fn post_provider_surfaces_event(args: &RecipeEventArgs) -> Result<(), Stri
         "params": params,
     });
 
-    let url = std::env::var("OPENHUMAN_CORE_RPC_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:7788/rpc".to_string());
+    let url = crate::core_rpc::core_rpc_url_value();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| format!("http client: {e}"))?;
-    let resp = client
-        .post(&url)
+    let req = crate::core_rpc::apply_auth(client.post(&url))?;
+    let resp = req
         .json(&body)
         .send()
         .await

@@ -104,6 +104,14 @@ impl CoreProcessHandle {
     }
 
     pub async fn ensure_running(&self) -> Result<(), String> {
+        if crate::core_rpc::is_remote_connection() {
+            log::info!(
+                "[core] remote core configured at {}; skipping embedded core start",
+                crate::core_rpc::core_rpc_url_value()
+            );
+            return Ok(());
+        }
+
         // Idempotent fast path: if we already spawned the embedded server in
         // *this* process and it's still alive on the port, the listener is
         // us — return Ok without identifying or taking over. Without this,

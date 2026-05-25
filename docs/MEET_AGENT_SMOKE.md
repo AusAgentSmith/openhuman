@@ -7,10 +7,11 @@ the call and listens to the agent's voice).
 
 ## Pre-flight
 
-1. Sign in to OpenHuman so a backend session token exists. Without
-   it, all three brain stages (STT/LLM/TTS) silently fall back to
-   stubs and you'll only hear a 200 ms tone — useful for plumbing
-   smoke but not the real loop.
+1. Configure the active core before joining the call: **Settings → AI**
+   must have a working chat provider, and **Settings → Voice** must have
+   a working TTS provider (Kokoro/system/local compatible endpoint).
+   There is no backend session token in this fork; missing provider
+   credentials are the usual cause of stub audio or failed replies.
 2. Ensure the vendored `tauri-cef` submodule is on
    `feat/openhuman-audio-handler` (or whatever branch carries the
    `audio` module — see `app/src-tauri/vendor/tauri-cef`).
@@ -97,7 +98,7 @@ the call and listens to the agent's voice).
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Heard event empty / "STT failure" | No backend session | Sign in |
+| Heard event empty / "STT failure" | STT/provider config missing or unreachable | Check Settings → Voice and provider logs |
 | Spoke event present, no audio on Laptop B | Bridge install failed | Check `Page.reload` errored — devtools network |
 | 1× turn fires, then nothing | VAD `in_utterance` flag stuck | Look for `EndOfUtterance` events; may need a longer hangover |
 | Audio "robot voice" | Sample-rate mismatch — bridge says 16000 but TTS gave another rate | Confirm `output_format=pcm_16000` request was honored |

@@ -3,7 +3,7 @@ import type { TranslationMap } from '../types';
 // Spanish (Español) chunk 5/5. Translated from chunks/en-5.ts.
 const es5: TranslationMap = {
   'settings.composio.apiKeyDesc':
-    'Actualmente hay una clave API de Composio almacenada en este dispositivo.',
+    "A Composio API key is currently stored in the active core's encrypted credential store.",
   'settings.composio.apiKeyLabel': 'Clave API de Composio',
   'settings.composio.apiKeyStored': 'Clave API almacenada',
   'settings.composio.apiKeyStoredPlaceholder': '••••••••••••••••',
@@ -12,7 +12,7 @@ const es5: TranslationMap = {
   'settings.composio.confirmItem2':
     'Vuelve a vincular cada integración a través de tu cuenta personal de Composio',
   'settings.composio.confirmItem3':
-    'Nota: los triggers de Composio (webhooks en tiempo real) aún no funcionan en modo Directo — solo las llamadas de herramientas síncronas',
+    'For real-time triggers, configure the ngrok receiver under Composio Triggers (Direct Mode)',
   'settings.composio.confirmNeedItems': 'Necesitarás:',
   'settings.composio.confirmSwitch': 'Entiendo, cambiar a Directo',
   'settings.composio.confirmTitle': '⚠️ Cambiando a modo Directo',
@@ -22,10 +22,10 @@ const es5: TranslationMap = {
     'Composio integra más de 250 aplicaciones externas como herramientas que tu agente puede invocar. Elige cómo se enrutan esas llamadas.',
   'settings.composio.modeDirect': 'Directo (usa tu propia clave API)',
   'settings.composio.modeDirectDesc':
-    'Las llamadas van directamente a backend.composio.dev. Soberano / amigable con uso sin conexión. La ejecución de herramientas funciona de forma síncrona; los webhooks de triggers en tiempo real aún no están enrutados en modo directo (incidencia pendiente).',
-  'settings.composio.modeManaged': 'Gestionado (OpenHuman lo maneja por ti)',
+    'Calls go to backend.composio.dev directly with your key. Connect flows create missing managed auth configs automatically; real-time triggers use the ngrok receiver in Composio Triggers.',
+  'settings.composio.modeManaged': 'Legacy backend (disabled)',
   'settings.composio.modeManagedDesc':
-    'OpenHuman canaliza las llamadas de herramientas a través de nuestro backend (recomendado). La autenticación se intermedia; nunca pegas una clave API de Composio. Los webhooks están totalmente enrutados.',
+    'Legacy backend-proxy mode kept for old config files. It is not usable in the closedhuman fork; use Direct mode with your own Composio API key.',
   'settings.composio.routingMode': 'Modo de enrutamiento',
   'settings.composio.saveErrorNoKey':
     'Error al guardar. El modo Directo requiere una clave API no vacía.',

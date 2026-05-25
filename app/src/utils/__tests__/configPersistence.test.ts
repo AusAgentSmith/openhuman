@@ -15,6 +15,7 @@ import {
   isAllowedCloudRpcUrl,
   isLocalOrPrivateNetworkHost,
   isValidRpcUrl,
+  normalizeCoreRpcUrl,
   normalizeRpcUrl,
   peekStoredRpcUrl,
   storeCoreMode,
@@ -281,6 +282,21 @@ describe('configPersistence', () => {
 
     it('trims leading and trailing whitespace', () => {
       expect(normalizeRpcUrl('  http://127.0.0.1:7788/rpc  ')).toBe('http://127.0.0.1:7788/rpc');
+    });
+  });
+
+  describe('normalizeCoreRpcUrl', () => {
+    it('appends /rpc when the user enters a server origin', () => {
+      expect(normalizeCoreRpcUrl('https://openhuman.sprooty.com')).toBe(
+        'https://openhuman.sprooty.com/rpc'
+      );
+      expect(normalizeCoreRpcUrl('http://127.0.0.1:7788/')).toBe('http://127.0.0.1:7788/rpc');
+    });
+
+    it('keeps an explicit /rpc path and drops query/hash fragments', () => {
+      expect(normalizeCoreRpcUrl(' https://core.example.com/rpc?debug=1#top ')).toBe(
+        'https://core.example.com/rpc'
+      );
     });
   });
 
