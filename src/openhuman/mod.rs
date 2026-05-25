@@ -21,6 +21,7 @@ pub mod app_state;
 pub mod approval;
 pub mod audio_toolkit;
 pub mod autocomplete;
+pub mod capabilities;
 pub mod channels;
 pub mod composio;
 pub mod config;

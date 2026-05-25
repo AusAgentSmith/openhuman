@@ -1,4 +1,6 @@
 export const CORE_RPC_METHODS = {
+  capabilitiesInventory: 'openhuman.capabilities_inventory',
+  capabilitiesStatus: 'openhuman.capabilities_status',
   configGet: 'openhuman.config_get',
   configGetAnalyticsSettings: 'openhuman.config_get_analytics_settings',
   configGetComposioTriggerSettings: 'openhuman.config_get_composio_trigger_settings',
@@ -26,6 +28,10 @@ export const CORE_RPC_METHODS = {
   inferenceUpdateModelSettings: 'openhuman.inference_update_model_settings',
   providersListModels: 'openhuman.inference_list_models',
   screenIntelligenceStatus: 'openhuman.screen_intelligence_status',
+  securityClientSessionsCreate: 'openhuman.security_client_sessions_create',
+  securityClientSessionsList: 'openhuman.security_client_sessions_list',
+  securityClientSessionsRevoke: 'openhuman.security_client_sessions_revoke',
+  securityClientSessionsStatus: 'openhuman.security_client_sessions_status',
 } as const;
 
 export type CoreRpcMethod = (typeof CORE_RPC_METHODS)[keyof typeof CORE_RPC_METHODS];

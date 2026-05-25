@@ -64,6 +64,10 @@ pub fn list_queue_items() -> Vec<RespondQueueItem> {
     queue_lock().clone()
 }
 
+pub fn queue_len() -> usize {
+    queue_lock().len()
+}
+
 #[cfg(test)]
 pub fn clear_queue() {
     queue_lock().clear();

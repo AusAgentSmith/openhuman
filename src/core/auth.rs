@@ -39,6 +39,7 @@ use std::sync::OnceLock;
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt as _;
 
+use anyhow::Context;
 use axum::http::{header, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -97,6 +98,9 @@ pub fn init_rpc_token(workspace_dir: &Path) -> anyhow::Result<()> {
     // reading core.token to start getting 401s immediately.
     if RPC_TOKEN.get().is_some() {
         log::debug!("[auth] init_rpc_token: already initialized, skipping");
+        if let Err(err) = crate::openhuman::security::client_sessions::init_global(workspace_dir) {
+            log::warn!("[auth] client session store initialization failed: {err:#}");
+        }
         return Ok(());
     }
 
@@ -105,6 +109,8 @@ pub fn init_rpc_token(workspace_dir: &Path) -> anyhow::Result<()> {
         let env_token = env_token.trim().to_string();
         if !env_token.is_empty() {
             let _ = RPC_TOKEN.set(env_token);
+            crate::openhuman::security::client_sessions::init_global(workspace_dir)
+                .with_context(|| "initialize client session store")?;
             log::info!("[auth] core RPC token loaded from environment (Tauri-managed)");
             return Ok(());
         }
@@ -115,6 +121,8 @@ pub fn init_rpc_token(workspace_dir: &Path) -> anyhow::Result<()> {
     let token_path = workspace_dir.join("core.token");
     write_token_file(&token_path, &token)?;
     let _ = RPC_TOKEN.set(token);
+    crate::openhuman::security::client_sessions::init_global(workspace_dir)
+        .with_context(|| "initialize client session store")?;
     log::info!(
         "[auth] core RPC token generated and written to {}",
         token_path.display()
@@ -162,10 +170,10 @@ pub async fn rpc_auth_middleware(req: axum::extract::Request, next: Next) -> Res
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    if bearer
-        .strip_prefix("Bearer ")
-        .is_some_and(|token| token == expected)
-    {
+    let bearer_token = bearer.strip_prefix("Bearer ");
+    if bearer_token.is_some_and(|token| {
+        token == expected || crate::openhuman::security::client_sessions::authenticate_global(token)
+    }) {
         log::trace!("[auth] authorized request to {path}");
         next.run(req).await
     } else {

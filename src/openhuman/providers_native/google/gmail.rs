@@ -1,6 +1,7 @@
 //! Direct Gmail REST API client. Replaces the Composio slugs
-//! `GMAIL_SEND_EMAIL`, `GMAIL_FETCH_EMAILS`, `GMAIL_DELETE_EMAIL`,
-//! `GMAIL_ADD_LABEL_TO_EMAIL` that the Composio backend previously
+//! `GMAIL_SEND_EMAIL`, `GMAIL_FETCH_EMAILS`, `GMAIL_LIST_LABELS`,
+//! `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `GMAIL_DELETE_EMAIL`,
+//! `GMAIL_MOVE_TO_TRASH`, `GMAIL_ADD_LABEL_TO_EMAIL` that the Composio backend previously
 //! brokered. Endpoint reference:
 //! <https://developers.google.com/gmail/api/reference/rest>.
 
@@ -24,7 +25,7 @@ const BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct MessageId {
     pub id: String,
-    #[serde(default)]
+    #[serde(default, alias = "threadId")]
     pub thread_id: Option<String>,
 }
 
@@ -32,10 +33,46 @@ pub struct MessageId {
 pub struct ListResponse {
     #[serde(default)]
     pub messages: Vec<MessageId>,
-    #[serde(default)]
+    #[serde(default, alias = "resultSizeEstimate")]
     pub result_size_estimate: Option<u64>,
-    #[serde(default)]
+    #[serde(default, alias = "nextPageToken")]
     pub next_page_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Label {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, alias = "messageListVisibility")]
+    pub message_list_visibility: Option<String>,
+    #[serde(default, alias = "labelListVisibility")]
+    pub label_list_visibility: Option<String>,
+    #[serde(default, alias = "type")]
+    pub label_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ListLabelsResponse {
+    #[serde(default)]
+    pub labels: Vec<Label>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GmailMessage {
+    pub id: String,
+    #[serde(default, alias = "threadId")]
+    pub thread_id: Option<String>,
+    #[serde(default, alias = "labelIds")]
+    pub label_ids: Vec<String>,
+    #[serde(default, alias = "historyId")]
+    pub history_id: Option<String>,
+    #[serde(default)]
+    pub snippet: Option<String>,
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
+    #[serde(default)]
+    pub raw: Option<String>,
 }
 
 /// Send a plain-text email as the authenticated user. Equivalent to
@@ -81,6 +118,37 @@ pub async fn list_messages(
     client.get_json::<ListResponse>(&url).await
 }
 
+/// List labels for the authenticated mailbox. Equivalent to
+/// `GMAIL_LIST_LABELS`.
+pub async fn list_labels(
+    http: &reqwest::Client,
+    service: &AuthService,
+) -> Result<ListLabelsResponse> {
+    let client = AuthedClient::new(http, service, GOOGLE_PROVIDER);
+    let url = format!("{BASE_URL}/users/me/labels");
+    client.get_json::<ListLabelsResponse>(&url).await
+}
+
+/// Fetch one Gmail message by id. Equivalent to
+/// `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`.
+pub async fn get_message(
+    http: &reqwest::Client,
+    service: &AuthService,
+    message_id: &str,
+    format: Option<&str>,
+) -> Result<GmailMessage> {
+    if message_id.trim().is_empty() {
+        return Err(anyhow!("get_message: message_id must not be empty"));
+    }
+    let client = AuthedClient::new(http, service, GOOGLE_PROVIDER);
+    let format = validated_message_format(format)?;
+    let url = format!(
+        "{BASE_URL}/users/me/messages/{}?format={format}",
+        urlencoding(message_id)
+    );
+    client.get_json::<GmailMessage>(&url).await
+}
+
 /// Permanently delete a message by ID. Equivalent to
 /// `GMAIL_DELETE_EMAIL`.
 pub async fn delete_message(
@@ -89,8 +157,26 @@ pub async fn delete_message(
     message_id: &str,
 ) -> Result<()> {
     let client = AuthedClient::new(http, service, GOOGLE_PROVIDER);
-    let url = format!("{BASE_URL}/users/me/messages/{message_id}");
+    let url = format!("{BASE_URL}/users/me/messages/{}", urlencoding(message_id));
     client.delete(&url).await
+}
+
+/// Move a message to the user's trash. Equivalent to
+/// `GMAIL_MOVE_TO_TRASH`.
+pub async fn trash_message(
+    http: &reqwest::Client,
+    service: &AuthService,
+    message_id: &str,
+) -> Result<GmailMessage> {
+    if message_id.trim().is_empty() {
+        return Err(anyhow!("trash_message: message_id must not be empty"));
+    }
+    let client = AuthedClient::new(http, service, GOOGLE_PROVIDER);
+    let url = format!(
+        "{BASE_URL}/users/me/messages/{}/trash",
+        urlencoding(message_id)
+    );
+    client.post_json::<GmailMessage>(&url, &json!({})).await
 }
 
 /// Add a label to an existing message. Equivalent to
@@ -103,7 +189,10 @@ pub async fn add_label(
     label_id: &str,
 ) -> Result<MessageId> {
     let client = AuthedClient::new(http, service, GOOGLE_PROVIDER);
-    let url = format!("{BASE_URL}/users/me/messages/{message_id}/modify");
+    let url = format!(
+        "{BASE_URL}/users/me/messages/{}/modify",
+        urlencoding(message_id)
+    );
     let body = json!({ "addLabelIds": [label_id] });
     client.post_json::<MessageId>(&url, &body).await
 }
@@ -138,6 +227,23 @@ fn urlencoding(value: &str) -> String {
     out
 }
 
+fn validated_message_format(format: Option<&str>) -> Result<&'static str> {
+    match format
+        .unwrap_or("full")
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "minimal" => Ok("minimal"),
+        "metadata" => Ok("metadata"),
+        "full" => Ok("full"),
+        "raw" => Ok("raw"),
+        other => Err(anyhow!(
+            "get_message: unsupported Gmail message format '{other}'"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +271,42 @@ mod tests {
             "from%3Abob%40example.com"
         );
         assert_eq!(urlencoding("subject:Q3 plan"), "subject%3AQ3%20plan");
+    }
+
+    #[test]
+    fn gmail_responses_accept_camel_case_fields() {
+        let list: ListResponse = serde_json::from_value(json!({
+            "messages": [{ "id": "m1", "threadId": "t1" }],
+            "resultSizeEstimate": 1,
+            "nextPageToken": "next"
+        }))
+        .unwrap();
+        assert_eq!(list.messages[0].thread_id.as_deref(), Some("t1"));
+        assert_eq!(list.result_size_estimate, Some(1));
+        assert_eq!(list.next_page_token.as_deref(), Some("next"));
+
+        let message: GmailMessage = serde_json::from_value(json!({
+            "id": "m1",
+            "threadId": "t1",
+            "labelIds": ["INBOX"],
+            "historyId": "42",
+            "snippet": "hello"
+        }))
+        .unwrap();
+        assert_eq!(message.thread_id.as_deref(), Some("t1"));
+        assert_eq!(message.label_ids, vec!["INBOX"]);
+        assert_eq!(message.history_id.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn validated_message_format_defaults_to_full_and_rejects_unknown() {
+        assert_eq!(validated_message_format(None).unwrap(), "full");
+        assert_eq!(
+            validated_message_format(Some("metadata")).unwrap(),
+            "metadata"
+        );
+        let err = validated_message_format(Some("summary")).unwrap_err();
+        assert!(err.to_string().contains("unsupported Gmail message format"));
     }
 
     #[test]

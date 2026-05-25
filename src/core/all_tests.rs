@@ -210,6 +210,23 @@ fn schema_for_rpc_method_returns_none_for_unknown() {
 }
 
 #[test]
+fn webview_apis_is_internal_only_but_routable() {
+    let public_methods = all_registered_controllers()
+        .into_iter()
+        .map(|controller| controller.rpc_method_name())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert!(
+        !public_methods.contains("openhuman.webview_apis_gmail_search"),
+        "webview_apis must not be publicly advertised"
+    );
+    assert!(
+        schema_for_rpc_method("openhuman.webview_apis_gmail_search").is_some(),
+        "webview_apis must remain routable for trusted desktop callers"
+    );
+}
+
+#[test]
 fn rpc_method_from_parts_finds_known() {
     let method = rpc_method_from_parts("health", "snapshot");
     assert_eq!(method.as_deref(), Some("openhuman.health_snapshot"));
@@ -467,5 +484,21 @@ fn every_registered_controller_has_matching_declared_schema() {
     assert_eq!(
         registered, declared,
         "registry/schema sets must be identical"
+    );
+}
+
+#[test]
+fn internal_http_method_schemas_include_only_internal_methods() {
+    let internal = all_internal_http_method_schemas();
+    let methods = internal
+        .iter()
+        .map(|method| method.method.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert!(methods.contains("openhuman.webview_apis_gmail_search"));
+    assert!(methods.contains("openhuman.whatsapp_data_ingest"));
+    assert!(
+        !methods.contains("openhuman.whatsapp_data_search_messages"),
+        "public whatsapp_data read methods should be deduped from the internal-only view"
     );
 }

@@ -167,6 +167,17 @@ fn http_liveness_payload_is_client_health_contract() {
     assert_eq!(value["probe"], "liveness");
     assert_eq!(value["status"], "live");
     assert_eq!(value["checks"]["process"], "ok");
+    assert_eq!(value["checks"]["capability_inventory"], "ok");
+    assert!(value["runtime"]["scheduler"]["status"].as_str().is_some());
+    assert!(value["runtime"]["provider_sync"]["tickSeconds"]
+        .as_u64()
+        .is_some());
+    assert!(value["runtime"]["queue_backlog"]["pending_items"]
+        .as_u64()
+        .is_some());
+    assert!(value["runtime"]["client_sessions"]["initialized"]
+        .as_bool()
+        .is_some());
     assert_eq!(value["endpoints"]["liveness"], "/health/live");
     assert_eq!(value["endpoints"]["readiness"], "/health/ready");
     assert!(value["version"].as_str().is_some());
@@ -196,6 +207,22 @@ fn http_readiness_payload_reports_rpc_checks() {
     assert!(matches!(
         value["checks"]["rpc_auth"].as_str(),
         Some("ok") | Some("not_configured")
+    ));
+    assert!(matches!(
+        value["checks"]["capability_inventory"].as_str(),
+        Some("ok") | Some("not_ready")
+    ));
+    assert!(matches!(
+        value["checks"]["scheduler"].as_str(),
+        Some("registered") | Some("not_ready")
+    ));
+    assert!(matches!(
+        value["checks"]["provider_sync"].as_str(),
+        Some("registered") | Some("not_ready")
+    ));
+    assert!(matches!(
+        value["checks"]["queue_backlog"].as_str(),
+        Some("registered") | Some("unknown")
     ));
 }
 
@@ -333,6 +360,52 @@ fn http_schema_dump_includes_openhuman_and_core_methods() {
             .iter()
             .any(|m| m.method == "openhuman.health_snapshot"),
         "schema dump should include migrated openhuman methods"
+    );
+}
+
+#[test]
+fn http_schema_dump_includes_capability_labels_and_hides_internal_bridges() {
+    let dump = build_http_schema_dump();
+
+    let health = dump
+        .methods
+        .iter()
+        .find(|method| method.method == "openhuman.health_snapshot")
+        .expect("health schema");
+    assert_eq!(
+        health.capability.label,
+        crate::openhuman::capabilities::CapabilityLabel::ServerSafe
+    );
+    assert!(health.capability.mobile_safe);
+
+    assert!(
+        !dump
+            .methods
+            .iter()
+            .any(|method| method.method == "openhuman.webview_apis_gmail_search"),
+        "desktop bridge-backed webview_apis methods must not be advertised through /schema"
+    );
+}
+
+#[tokio::test]
+async fn invoke_capabilities_status_via_registry() {
+    let out = invoke_method(default_state(), "openhuman.capabilities_status", json!({}))
+        .await
+        .expect("capabilities status should route via registry");
+
+    let status = out.get("result").unwrap_or(&out);
+    assert!(
+        status["counts"]["server-safe"].as_u64().unwrap_or(0) > 0,
+        "status should count server-safe controllers: {status}"
+    );
+    assert!(
+        status["blockedByTauriBridge"]
+            .as_array()
+            .map(|methods| methods
+                .iter()
+                .any(|method| method == "openhuman.webview_apis_gmail_search"))
+            .unwrap_or(false),
+        "status should list webview bridge blockers: {status}"
     );
 }
 

@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
 use tokio::time::interval;
 
 use crate::openhuman::config::rpc as config_rpc;
@@ -72,6 +73,14 @@ type SyncTimestampMap = Arc<Mutex<HashMap<(String, String), Instant>>>;
 
 static LAST_SYNC_AT: OnceLock<SyncTimestampMap> = OnceLock::new();
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodicSyncStatus {
+    pub started: bool,
+    pub tick_seconds: u64,
+    pub tracked_success_count: usize,
+}
+
 /// Get (or lazily initialise) the shared last-sync-at map.
 fn last_sync_map() -> SyncTimestampMap {
     LAST_SYNC_AT
@@ -89,6 +98,18 @@ pub fn record_sync_success(toolkit: &str, connection_id: &str) {
             (toolkit.to_string(), connection_id.to_string()),
             Instant::now(),
         );
+    }
+}
+
+pub fn status_snapshot() -> PeriodicSyncStatus {
+    let tracked_success_count = LAST_SYNC_AT
+        .get()
+        .and_then(|map| map.lock().ok().map(|guard| guard.len()))
+        .unwrap_or(0);
+    PeriodicSyncStatus {
+        started: SCHEDULER_STARTED.get().is_some(),
+        tick_seconds: TICK_SECONDS,
+        tracked_success_count,
     }
 }
 
@@ -267,6 +288,15 @@ mod tests {
             .expect("entry recorded");
         // Just-recorded timestamps should be very recent.
         assert!(ts.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn status_snapshot_reports_started_and_tracked_syncs() {
+        record_sync_success("test_periodic_toolkit_status", "conn-status");
+        let status = status_snapshot();
+
+        assert!(status.tick_seconds >= 30);
+        assert!(status.tracked_success_count >= 1);
     }
 
     #[test]

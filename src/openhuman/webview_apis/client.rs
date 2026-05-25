@@ -21,9 +21,12 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_tungstenite::tungstenite::Message;
+
+use crate::rpc::StructuredRpcError;
 
 /// Env var the Tauri host writes before spawning core.
 pub const PORT_ENV: &str = "OPENHUMAN_WEBVIEW_APIS_PORT";
@@ -101,7 +104,7 @@ impl Client {
         };
         let frame = serde_json::to_string(&envelope).map_err(|e| format!("encode request: {e}"))?;
 
-        let sender = self.ensure_connected().await?;
+        let sender = self.ensure_connected(&method).await?;
         if let Err(e) = sender.send(frame).await {
             // Drop the pending entry so we don't leak.
             self.pending.lock().await.remove(&id);
@@ -116,7 +119,7 @@ impl Client {
 
     /// Return an mpsc::Sender that the reader loop holds. Reconnects
     /// if the previous connection is gone.
-    async fn ensure_connected(&self) -> Result<mpsc::Sender<String>, String> {
+    async fn ensure_connected(&self, method: &str) -> Result<mpsc::Sender<String>, String> {
         {
             let guard = self.sink.lock().await;
             if let Some(tx) = guard.as_ref() {
@@ -134,16 +137,23 @@ impl Client {
             }
         }
         let port = std::env::var(PORT_ENV).map_err(|_| {
-            format!(
-                "[webview_apis] {PORT_ENV} not set — the Tauri shell must be running \
-                 and have spawned this core process so the bridge port is inherited"
+            desktop_collector_unavailable_error(
+                method,
+                "missing_bridge_port",
+                &format!(
+                    "[webview_apis] {method}: desktop collector unavailable ({PORT_ENV} not set)"
+                ),
             )
         })?;
         let url = format!("ws://127.0.0.1:{port}/");
         tracing::info!(%url, "[webview_apis-client] connecting");
-        let (ws, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .map_err(|e| format!("[webview_apis] connect {url}: {e}"))?;
+        let (ws, _) = tokio_tungstenite::connect_async(&url).await.map_err(|e| {
+            desktop_collector_unavailable_error(
+                method,
+                "bridge_connect_failed",
+                &format!("[webview_apis] {method}: desktop collector unavailable ({e})"),
+            )
+        })?;
         let (mut sink, mut stream) = ws.split();
 
         let (tx, mut rx) = mpsc::channel::<String>(32);
@@ -216,6 +226,22 @@ impl Client {
     }
 }
 
+fn desktop_collector_unavailable_error(method: &str, reason: &str, message: &str) -> String {
+    StructuredRpcError {
+        message: message.to_string(),
+        data: Some(json!({
+            "kind": "DesktopCollectorUnavailable",
+            "capability": "webview_apis",
+            "dependency": "tauri:webview_apis",
+            "env": PORT_ENV,
+            "method": method,
+            "reason": reason,
+        })),
+        expected_user_state: true,
+    }
+    .encode()
+}
+
 // ── Envelope types ──────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -236,4 +262,28 @@ struct Response {
     result: Option<Value>,
     #[serde(default)]
     error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_collector_unavailable_error_is_structured() {
+        let raw = desktop_collector_unavailable_error(
+            "gmail.search",
+            "missing_bridge_port",
+            "desktop collector unavailable",
+        );
+        let decoded = StructuredRpcError::decode(&raw).expect("structured error");
+
+        assert_eq!(decoded.message, "desktop collector unavailable");
+        assert!(decoded.expected_user_state);
+        let data = decoded.data.expect("error data");
+        assert_eq!(data["kind"], json!("DesktopCollectorUnavailable"));
+        assert_eq!(data["capability"], json!("webview_apis"));
+        assert_eq!(data["env"], json!(PORT_ENV));
+        assert_eq!(data["method"], json!("gmail.search"));
+        assert_eq!(data["reason"], json!("missing_bridge_port"));
+    }
 }

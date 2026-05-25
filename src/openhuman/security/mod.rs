@@ -1,3 +1,4 @@
+pub mod client_sessions;
 mod core;
 pub mod ops;
 mod schemas;

@@ -62,6 +62,14 @@ The server exposes port **7788**; the single RPC endpoint is
 `http://<host>:7788/rpc`. The bearer token is written to
 `<workspace>/core.token` inside the container on first start.
 
+The desktop picker accepts either the server origin (`http://<host>:7788`
+or `https://openhuman.example.com`) or the full RPC endpoint
+(`.../rpc`). It normalizes origin-only input to `/rpc`, stores the URL
+and bearer token on the client device, and configures the Tauri host to
+use that remote core. In Cloud mode the embedded in-process core is not
+started; in Local mode the remote URL/token are cleared and the embedded
+core is started on loopback.
+
 ---
 
 ## Running the server (Docker)
@@ -70,6 +78,11 @@ A reference compose file lives at `deploy/node-b/docker-compose.yml` in
 this repo. It defines one service (`openhuman-core`), a named volume
 (`openhuman-workspace` → `/home/openhuman/.openhuman`), and exposes port
 7788.
+
+Bind port 7788 to loopback when a reverse proxy on the same host serves
+HTTPS, or to a reachable private interface when clients connect directly
+over LAN/Tailscale. Do not expose bearer-authenticated HTTP on the public
+internet without TLS in front of it.
 
 **Start the server:**
 
@@ -91,6 +104,11 @@ docker exec openhuman-core cat /home/openhuman/.openhuman/core.token
 3. Enter the server URL, e.g. `http://<host>:7788`, and paste the token.
 4. The app validates the connection and proceeds to `/home`.
 
+Installed release artifacts do not read the repository `.env` files.
+For `.deb`, `.dmg`, `.msi`, or `.AppImage` builds, use the first-launch
+runtime picker (or clear the stored mode and pick again) instead of
+expecting `OPENHUMAN_CORE_RPC_URL` from your dev shell to be present.
+
 **Version sync:** the desktop app and the server image must be on the
 same version — the boot check enforces an exact match. App version is in
 `app/package.json`; server version is baked into the image from
@@ -108,9 +126,28 @@ detect a dead or unreachable core. It returns `ok`, `service`, `probe`,
 `status`, `version`, `pid`, `uptime_seconds`, `checked_at`, `checks`,
 and endpoint hints. `/health/ready` returns the same shape but reports
 whether authenticated JSON-RPC is ready (`checks.rpc_dispatch` and
-`checks.rpc_auth`); use it before enabling a desktop, web, or native
-mobile client session. `/health` remains a backwards-compatible
-liveness alias.
+`checks.rpc_auth`) plus server-runtime readiness signals for capability
+inventory, scheduler registration, provider sync registration, and queue
+backlog visibility. The payload also includes `runtime.scheduler`,
+`runtime.provider_sync`, `runtime.queue_backlog`, and
+`runtime.client_sessions` snapshots so operators can distinguish a live
+process from one that is actually ready for durable work. Use it before
+enabling a desktop, web, or native mobile client session. `/health`
+remains a backwards-compatible liveness alias.
+
+**Create a device-scoped client token:**
+
+```bash
+curl -s http://<host>:7788/rpc \
+  -H "Authorization: Bearer <bootstrap-core-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"openhuman.security_client_sessions_create","params":{"label":"phone"}}'
+```
+
+The returned `token` is shown once. Store that on the client instead of
+the bootstrap `core.token`. Revoke lost devices with
+`openhuman.security_client_sessions_revoke`; provider OAuth/API tokens
+remain server-side in the workspace `AuthService`.
 
 **View logs:**
 
@@ -162,14 +199,17 @@ CLI is installed.
 pnpm dev:app
 ```
 
-This builds the Rust core in-process, spins up the Tauri shell, and
-opens the desktop window. There is no more sidecar `openhuman-core`
-process — the JSON-RPC server is a tokio task inside the GUI process
-(see `app/src-tauri/src/core_process.rs`).
+This builds the Rust core, spins up the Tauri shell, and opens the
+desktop window. There is no Tauri sidecar `openhuman-core` process. In
+Local mode, the JSON-RPC server is a tokio task inside the GUI process
+(see `app/src-tauri/src/core_process.rs`). In Cloud mode, the Tauri host
+uses the configured remote server and skips the embedded core.
 
-You should land directly on `/home`. If you see a blank screen and a
-spinning loader, that means `CoreStateProvider` is still bootstrapping;
-give it a few seconds.
+On first launch you should see the runtime picker. Choose **Local** for
+the embedded core or **Cloud** for a remote server. Once the boot check
+passes, the app proceeds to `/home`. If you see a blank screen and a
+spinning loader after the picker, `CoreStateProvider` is still
+bootstrapping; give it a few seconds.
 
 ## Step 3 — Configure OpenAI from the UI
 
@@ -234,10 +274,14 @@ re-auth until the provider revokes the refresh token (Google unverified
 apps: ~7 days; GitHub: indefinite for classic OAuth, otherwise per the
 expiring-OAuth-App policy).
 
-The 9 native tool slugs available without ever touching a third party:
+Native tool slugs available without ever touching the deleted OpenHuman
+backend:
 
-- **Gmail**: `GMAIL_SEND_EMAIL`, `GMAIL_FETCH_EMAILS`,
-  `GMAIL_DELETE_EMAIL`, `GMAIL_ADD_LABEL_TO_EMAIL`
+- **Gmail**: `GMAIL_SEND_EMAIL`, `GMAIL_FETCH_EMAILS` /
+  `GMAIL_LIST_MESSAGES`, `GMAIL_LIST_LABELS`,
+  `GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID`, `GMAIL_DELETE_EMAIL` /
+  `GMAIL_DELETE_MESSAGE`, `GMAIL_MOVE_TO_TRASH` /
+  `GMAIL_TRASH_EMAIL`, `GMAIL_ADD_LABEL_TO_EMAIL`
 - **Calendar**: `GOOGLECALENDAR_EVENTS_LIST` /
   `GOOGLECALENDAR_FIND_EVENT`, `GOOGLECALENDAR_EVENTS_GET`,
   `GOOGLECALENDAR_CREATE_EVENT`

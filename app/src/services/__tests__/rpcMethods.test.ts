@@ -56,11 +56,19 @@ describe('rpcMethods catalog', () => {
   test('catalog canonical methods exist in core schema registry (drift guard)', () => {
     const schemaSources = [
       fs.readFileSync(
+        path.resolve(__dirname, '../../../../src/openhuman/capabilities/schemas.rs'),
+        'utf8'
+      ),
+      fs.readFileSync(
         path.resolve(__dirname, '../../../../src/openhuman/config/schemas.rs'),
         'utf8'
       ),
       fs.readFileSync(
         path.resolve(__dirname, '../../../../src/openhuman/screen_intelligence/schemas.rs'),
+        'utf8'
+      ),
+      fs.readFileSync(
+        path.resolve(__dirname, '../../../../src/openhuman/security/schemas.rs'),
         'utf8'
       ),
       fs.readFileSync(
@@ -77,13 +85,17 @@ describe('rpcMethods catalog', () => {
       // core.* methods (e.g. core.ping) are special dispatch methods, not in the schema catalog.
       if (!method.startsWith('openhuman.')) continue;
       const methodRoot = method.slice('openhuman.'.length);
-      const namespace = methodRoot.startsWith('screen_intelligence_')
-        ? 'screen_intelligence'
-        : methodRoot.startsWith('inference_')
-          ? 'inference'
-          : methodRoot.startsWith('providers_')
-            ? 'providers'
-            : 'config';
+      const namespace = methodRoot.startsWith('capabilities_')
+        ? 'capabilities'
+        : methodRoot.startsWith('security_')
+          ? 'security'
+          : methodRoot.startsWith('screen_intelligence_')
+            ? 'screen_intelligence'
+            : methodRoot.startsWith('inference_')
+              ? 'inference'
+              : methodRoot.startsWith('providers_')
+                ? 'providers'
+                : 'config';
       const fnName = methodRoot.slice(`${namespace}_`.length);
       expect(schemaSources).toContain(`namespace: "${namespace}"`);
       expect(schemaSources).toContain(`function: "${fnName}"`);

@@ -394,6 +394,10 @@ struct HttpHealthChecks {
     process: &'static str,
     rpc_dispatch: &'static str,
     rpc_auth: &'static str,
+    capability_inventory: &'static str,
+    scheduler: &'static str,
+    provider_sync: &'static str,
+    queue_backlog: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -402,6 +406,27 @@ struct HttpHealthEndpoints {
     readiness: &'static str,
     rpc: &'static str,
     schema: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct HttpSchedulerRuntime {
+    status: String,
+    last_ok: Option<String>,
+    last_error: Option<String>,
+    restart_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct HttpQueueBacklogRuntime {
+    pending_items: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct HttpHealthRuntime {
+    scheduler: HttpSchedulerRuntime,
+    provider_sync: crate::openhuman::composio::periodic::PeriodicSyncStatus,
+    queue_backlog: HttpQueueBacklogRuntime,
+    client_sessions: crate::openhuman::security::client_sessions::ClientSessionSummary,
 }
 
 #[derive(Debug, Serialize)]
@@ -415,13 +440,47 @@ struct HttpHealthResponse {
     uptime_seconds: u64,
     checked_at: String,
     checks: HttpHealthChecks,
+    runtime: HttpHealthRuntime,
     endpoints: HttpHealthEndpoints,
+}
+
+fn build_http_runtime_status() -> HttpHealthRuntime {
+    let health = crate::openhuman::health::snapshot();
+    let scheduler = health.components.get("scheduler");
+
+    HttpHealthRuntime {
+        scheduler: HttpSchedulerRuntime {
+            status: scheduler
+                .map(|entry| entry.status.clone())
+                .unwrap_or_else(|| "unknown".to_string()),
+            last_ok: scheduler.and_then(|entry| entry.last_ok.clone()),
+            last_error: scheduler.and_then(|entry| entry.last_error.clone()),
+            restart_count: scheduler
+                .map(|entry| entry.restart_count)
+                .unwrap_or_default(),
+        },
+        provider_sync: crate::openhuman::composio::periodic::status_snapshot(),
+        queue_backlog: HttpQueueBacklogRuntime {
+            pending_items: crate::openhuman::provider_surfaces::store::queue_len(),
+        },
+        client_sessions: crate::openhuman::security::client_sessions::global_summary(),
+    }
 }
 
 fn build_http_health_payload(probe: HttpHealthProbe) -> (StatusCode, HttpHealthResponse) {
     let rpc_dispatch_ready = all::schema_for_rpc_method("openhuman.health_snapshot").is_some();
     let rpc_auth_ready = crate::core::auth::get_rpc_token().is_some();
-    let readiness_ok = rpc_dispatch_ready && rpc_auth_ready;
+    let capability_inventory_ready =
+        all::schema_for_rpc_method("openhuman.capabilities_status").is_some();
+    let scheduler_registered = all::schema_for_rpc_method("openhuman.cron_list").is_some();
+    let provider_sync_registered = all::schema_for_rpc_method("openhuman.composio_sync").is_some();
+    let queue_backlog_registered =
+        all::schema_for_rpc_method("openhuman.provider_surfaces_list_queue").is_some();
+    let readiness_ok = rpc_dispatch_ready
+        && rpc_auth_ready
+        && capability_inventory_ready
+        && scheduler_registered
+        && provider_sync_registered;
 
     let ok = match probe {
         HttpHealthProbe::Liveness => true,
@@ -464,7 +523,28 @@ fn build_http_health_payload(probe: HttpHealthProbe) -> (StatusCode, HttpHealthR
                 } else {
                     "not_configured"
                 },
+                capability_inventory: if capability_inventory_ready {
+                    "ok"
+                } else {
+                    "not_ready"
+                },
+                scheduler: if scheduler_registered {
+                    "registered"
+                } else {
+                    "not_ready"
+                },
+                provider_sync: if provider_sync_registered {
+                    "registered"
+                } else {
+                    "not_ready"
+                },
+                queue_backlog: if queue_backlog_registered {
+                    "registered"
+                } else {
+                    "unknown"
+                },
             },
+            runtime: build_http_runtime_status(),
             endpoints: HttpHealthEndpoints {
                 liveness: "/health/live",
                 readiness: "/health/ready",
@@ -1096,6 +1176,9 @@ struct HttpMethodSchema {
     inputs: Vec<crate::core::FieldSchema>,
     /// List of output fields.
     outputs: Vec<crate::core::FieldSchema>,
+    /// Server-runtime feature label clients can use to hide or degrade
+    /// unsupported desktop/mobile surfaces.
+    capability: crate::openhuman::capabilities::ControllerCapability,
 }
 
 /// Aggregates schemas from all registered controllers into a single dump.
@@ -1105,6 +1188,10 @@ fn build_http_schema_dump() -> HttpSchemaDump {
     let mut methods: Vec<HttpMethodSchema> = all::all_http_method_schemas()
         .into_iter()
         .map(|method| HttpMethodSchema {
+            capability: crate::openhuman::capabilities::capability_for(
+                method.namespace,
+                method.function,
+            ),
             method: method.method,
             namespace: method.namespace.to_string(),
             function: method.function.to_string(),

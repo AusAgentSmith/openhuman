@@ -37,8 +37,19 @@ pub async fn try_dispatch_native(
     let args = arguments.cloned().unwrap_or_else(|| json!({}));
     match trimmed {
         "GMAIL_SEND_EMAIL" => Some(dispatch_gmail_send(http, service, &args).await),
-        "GMAIL_FETCH_EMAILS" => Some(dispatch_gmail_list(http, service, &args).await),
-        "GMAIL_DELETE_EMAIL" => Some(dispatch_gmail_delete(http, service, &args).await),
+        "GMAIL_FETCH_EMAILS" | "GMAIL_LIST_MESSAGES" => {
+            Some(dispatch_gmail_list(http, service, &args).await)
+        }
+        "GMAIL_LIST_LABELS" => Some(dispatch_gmail_list_labels(http, service).await),
+        "GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID" => {
+            Some(dispatch_gmail_get_message(http, service, &args).await)
+        }
+        "GMAIL_DELETE_EMAIL" | "GMAIL_DELETE_MESSAGE" => {
+            Some(dispatch_gmail_delete(http, service, &args).await)
+        }
+        "GMAIL_MOVE_TO_TRASH" | "GMAIL_TRASH_EMAIL" => {
+            Some(dispatch_gmail_trash(http, service, &args).await)
+        }
         "GMAIL_ADD_LABEL_TO_EMAIL" => Some(dispatch_gmail_add_label(http, service, &args).await),
         "GOOGLECALENDAR_EVENTS_LIST" | "GOOGLECALENDAR_FIND_EVENT" => {
             Some(dispatch_calendar_list(http, service, &args).await)
@@ -104,14 +115,54 @@ async fn dispatch_gmail_list(
     }))
 }
 
+async fn dispatch_gmail_list_labels(
+    http: &reqwest::Client,
+    service: &AuthService,
+) -> Result<Value> {
+    let resp = google::gmail::list_labels(http, service).await?;
+    Ok(json!({ "labels": resp.labels }))
+}
+
+async fn dispatch_gmail_get_message(
+    http: &reqwest::Client,
+    service: &AuthService,
+    args: &Value,
+) -> Result<Value> {
+    let message_id = str_field(args, "message_id")
+        .or_else(|_| str_field(args, "messageId"))
+        .or_else(|_| str_field(args, "id"))?;
+    let format = args.get("format").and_then(Value::as_str);
+    let message = google::gmail::get_message(http, service, &message_id, format).await?;
+    Ok(serde_json::to_value(message)?)
+}
+
 async fn dispatch_gmail_delete(
     http: &reqwest::Client,
     service: &AuthService,
     args: &Value,
 ) -> Result<Value> {
-    let message_id = str_field(args, "message_id").or_else(|_| str_field(args, "id"))?;
+    let message_id = str_field(args, "message_id")
+        .or_else(|_| str_field(args, "messageId"))
+        .or_else(|_| str_field(args, "id"))?;
     google::gmail::delete_message(http, service, &message_id).await?;
     Ok(json!({ "deleted": true, "message_id": message_id }))
+}
+
+async fn dispatch_gmail_trash(
+    http: &reqwest::Client,
+    service: &AuthService,
+    args: &Value,
+) -> Result<Value> {
+    let message_id = str_field(args, "message_id")
+        .or_else(|_| str_field(args, "messageId"))
+        .or_else(|_| str_field(args, "id"))?;
+    let msg = google::gmail::trash_message(http, service, &message_id).await?;
+    Ok(json!({
+        "trashed": true,
+        "id": msg.id,
+        "thread_id": msg.thread_id,
+        "label_ids": msg.label_ids,
+    }))
 }
 
 async fn dispatch_gmail_add_label(
@@ -119,7 +170,9 @@ async fn dispatch_gmail_add_label(
     service: &AuthService,
     args: &Value,
 ) -> Result<Value> {
-    let message_id = str_field(args, "message_id").or_else(|_| str_field(args, "id"))?;
+    let message_id = str_field(args, "message_id")
+        .or_else(|_| str_field(args, "messageId"))
+        .or_else(|_| str_field(args, "id"))?;
     // Composio's arg shape uses `label_ids: [String]`; pick the first
     // for the single-label native API. Callers wanting bulk labelling
     // can call us repeatedly until that API surfaces a multi-label

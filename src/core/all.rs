@@ -108,15 +108,14 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
     controllers.extend(crate::openhuman::about_app::all_about_app_registered_controllers());
     // Core application shell state
     controllers.extend(crate::openhuman::app_state::all_app_state_registered_controllers());
+    // Server-runtime capability inventory for desktop/mobile feature gating
+    controllers.extend(crate::openhuman::capabilities::all_capabilities_registered_controllers());
     // Audio generation + podcast-style email delivery
     controllers.extend(crate::openhuman::audio_toolkit::all_audio_toolkit_registered_controllers());
     // Composio integration controllers
     controllers.extend(crate::openhuman::composio::all_composio_registered_controllers());
     // Scheduled job management
     controllers.extend(crate::openhuman::cron::all_cron_registered_controllers());
-    // Webview APIs bridge — proxies connector calls (Gmail, …) through
-    // a WebSocket to the Tauri shell so curl reaches the live webview.
-    controllers.extend(crate::openhuman::webview_apis::all_webview_apis_registered_controllers());
     // Agent definition and prompt inspection
     controllers.extend(crate::openhuman::agent::all_agent_registered_controllers());
     // System and process health monitoring
@@ -241,6 +240,10 @@ fn build_registered_controllers() -> Vec<RegisteredController> {
 /// (e.g. the Tauri scanner ingest path) that should not appear in agent tool listings.
 fn build_internal_only_controllers() -> Vec<RegisteredController> {
     let mut controllers = Vec::new();
+    // webview_apis: desktop bridge path. Callable by trusted desktop callers
+    // when the Tauri bridge is present, but not advertised in public schema
+    // discovery because standalone/mobile clients cannot satisfy it.
+    controllers.extend(crate::openhuman::webview_apis::all_webview_apis_registered_controllers());
     // whatsapp_data ingest: scanner-side write path.  Callable over RPC by the
     // Tauri scanner but excluded from agent-facing schema discovery.
     controllers.extend(crate::openhuman::whatsapp_data::all_whatsapp_data_internal_controllers());
@@ -255,10 +258,10 @@ fn build_declared_controller_schemas() -> Vec<ControllerSchema> {
     let mut schemas = Vec::new();
     schemas.extend(crate::openhuman::about_app::all_about_app_controller_schemas());
     schemas.extend(crate::openhuman::app_state::all_app_state_controller_schemas());
+    schemas.extend(crate::openhuman::capabilities::all_capabilities_controller_schemas());
     schemas.extend(crate::openhuman::audio_toolkit::all_audio_toolkit_controller_schemas());
     schemas.extend(crate::openhuman::composio::all_composio_controller_schemas());
     schemas.extend(crate::openhuman::cron::all_cron_controller_schemas());
-    schemas.extend(crate::openhuman::webview_apis::all_webview_apis_controller_schemas());
     schemas.extend(crate::openhuman::agent::all_agent_controller_schemas());
     schemas.extend(crate::openhuman::health::all_health_controller_schemas());
     schemas.extend(crate::openhuman::doctor::all_doctor_controller_schemas());
@@ -351,6 +354,9 @@ pub fn namespace_description(namespace: &str) -> Option<&'static str> {
         "app_state" => Some("Expose core-owned app shell state for frontend polling."),
         "auth" => Some("Manage app session and provider credentials."),
         "autocomplete" => Some("Inline autocomplete engine controls and style settings."),
+        "capabilities" => Some(
+            "Report server-runtime capability labels for controller and mobile feature gating.",
+        ),
         "channels" => Some("Channel definitions, connections, and lifecycle management."),
         "composio" => Some(
             "Composio OAuth integrations proxied via the backend — toolkits, connections, tools, and actions."
@@ -654,6 +660,26 @@ pub fn all_http_method_schemas() -> Vec<HttpMethodSchemaDefinition> {
             }),
     );
     methods
+}
+
+pub fn all_internal_http_method_schemas() -> Vec<HttpMethodSchemaDefinition> {
+    let public_methods = registry()
+        .iter()
+        .map(|controller| controller.rpc_method_name())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    internal_registry()
+        .iter()
+        .filter(|controller| !public_methods.contains(&controller.rpc_method_name()))
+        .map(|controller| HttpMethodSchemaDefinition {
+            method: controller.rpc_method_name(),
+            namespace: controller.schema.namespace,
+            function: controller.schema.function,
+            description: controller.schema.description,
+            inputs: controller.schema.inputs.clone(),
+            outputs: controller.schema.outputs.clone(),
+        })
+        .collect()
 }
 
 #[cfg(test)]
