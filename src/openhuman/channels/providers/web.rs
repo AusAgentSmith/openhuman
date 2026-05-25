@@ -1381,10 +1381,20 @@ fn build_session_agent(
     locale: Option<&str>,
 ) -> Result<Agent, String> {
     let mut effective = config.clone();
-    if let Some(model) = concrete_model_override(model_override.as_deref()) {
-        effective.default_model = Some(model);
-    }
     let provider_role = provider_role_for_model_override(model_override.as_deref());
+    if let Some(model) = concrete_model_override(model_override.as_deref()) {
+        // Concrete model string — set directly as the session model.
+        effective.default_model = Some(model);
+    } else if model_override
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+    {
+        // Routing hint (e.g. "hint:agentic", "agentic-v1"): pass the hint
+        // through to default_model so builder.rs:771 can map it to the correct
+        // provider role via create_chat_provider. The hint is never forwarded
+        // to the provider API — the builder resolves it to the concrete model.
+        effective.default_model = model_override.clone();
+    }
     if let Some(temp) = temperature {
         effective.default_temperature = temp;
     }
