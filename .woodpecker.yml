@@ -117,8 +117,9 @@ steps:
 
         # ── build the .deb bundle ─────────────────────────────────────────────
         # tauri runs beforeBuildCommand ("pnpm run build:app") automatically.
+        # Woodpecker sets CI=woodpecker; tauri-cli only accepts true/false — override.
         mkdir -p "$CEF_PATH"
-        cargo tauri build --bundles deb -- --bin OpenHuman
+        CI=true cargo tauri build --bundles deb -- --bin OpenHuman
 
         cd ..
 
