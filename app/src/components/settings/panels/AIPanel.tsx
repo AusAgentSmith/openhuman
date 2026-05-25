@@ -2140,13 +2140,15 @@ const AIPanel = ({ embedded = false }: AIPanelProps = {}) => {
           localModels={installed}
           ollamaRunning={ollama.state === 'running'}
           onClose={() => setDefaultDialogOpen(false)}
-          onSubmit={next => {
+          onSubmit={async next => {
             const routing = { ...draft.routing };
             for (const row of chatRows) {
               routing[row.id] = { kind: 'openhuman' };
             }
-            setDraft({ ...draft, chatDefault: next, routing });
+            const nextDraft = { ...draft, chatDefault: next, routing };
+            setDraft(nextDraft);
             setDefaultDialogOpen(false);
+            await save(nextDraft);
           }}
         />
       )}
@@ -2163,9 +2165,14 @@ const AIPanel = ({ embedded = false }: AIPanelProps = {}) => {
               localModels={installed}
               ollamaRunning={ollama.state === 'running'}
               onClose={() => setCustomDialogFor(null)}
-              onSubmit={next => {
-                updateRouting(customDialogFor, next);
+              onSubmit={async next => {
+                const nextDraft = {
+                  ...draft,
+                  routing: { ...draft.routing, [customDialogFor]: next },
+                };
+                setDraft(nextDraft);
                 setCustomDialogFor(null);
+                await save(nextDraft);
               }}
             />
           );
