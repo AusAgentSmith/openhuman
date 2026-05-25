@@ -286,6 +286,79 @@ export async function setCloudProviderKey(slug: string, apiKey: string): Promise
   });
 }
 
+function builtInCloudProvider(
+  slug: string
+): { provider: CloudProviderCreds; model: string } | null {
+  switch (slug) {
+    case 'openai':
+      return {
+        provider: {
+          id: 'p_openai_builtin',
+          slug: 'openai',
+          label: 'OpenAI',
+          endpoint: 'https://api.openai.com/v1',
+          auth_style: 'bearer',
+        },
+        model: 'gpt-5.4',
+      };
+    case 'anthropic':
+      return {
+        provider: {
+          id: 'p_anthropic_builtin',
+          slug: 'anthropic',
+          label: 'Anthropic',
+          endpoint: 'https://api.anthropic.com/v1',
+          auth_style: 'anthropic',
+        },
+        model: 'claude-sonnet-4-6',
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Onboarding stores API keys before the full Settings -> AI panel is opened.
+ * Make that path complete by also creating the matching built-in provider row
+ * and clearing stale implicit Ollama memory routes from older defaults.
+ */
+export async function ensureBuiltInCloudProviderConfigured(slug: string): Promise<void> {
+  if (!isTauri()) return;
+
+  const builtIn = builtInCloudProvider(slug);
+  if (!builtIn) return;
+
+  const config = (await openhumanGetClientConfig()).result;
+  const providers = config.cloud_providers;
+  const exists = providers.some(provider => provider.slug === slug);
+  const patch: ModelSettingsUpdate = {};
+
+  if (!exists) {
+    patch.cloud_providers = [...providers, builtIn.provider];
+  }
+
+  const currentDefault = (config.default_model ?? '').trim();
+  const defaultIsUnsetOrLocal =
+    !currentDefault ||
+    currentDefault === 'cloud' ||
+    currentDefault === 'openhuman' ||
+    currentDefault.startsWith('ollama:');
+  if (defaultIsUnsetOrLocal) {
+    patch.default_model = `${slug}:${builtIn.model}`;
+  }
+
+  if ((config.memory_provider ?? '').trim().startsWith('ollama:')) {
+    patch.memory_provider = '';
+  }
+  if ((config.embeddings_provider ?? '').trim().startsWith('ollama:')) {
+    patch.embeddings_provider = '';
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await openhumanUpdateModelSettings(patch);
+  }
+}
+
 /** Clear a stored API key. */
 export async function clearCloudProviderKey(slug: string): Promise<void> {
   if (slug === 'openhuman') {

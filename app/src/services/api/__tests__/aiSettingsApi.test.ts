@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type AISettings,
   clearCloudProviderKey,
+  ensureBuiltInCloudProviderConfigured,
   flushCloudProviders,
   listModelsRaw,
   listProviderModels,
@@ -81,6 +82,7 @@ function makeClientConfigResult(overrides: Record<string, unknown> = {}) {
       model_routes: [],
       cloud_providers: [],
       primary_cloud: null,
+      chat_provider: null,
       reasoning_provider: null,
       agentic_provider: null,
       coding_provider: null,
@@ -640,6 +642,71 @@ describe('setCloudProviderKey', () => {
     await setCloudProviderKey('anthropic', 'sk-ant-key');
     const args = mockAuthStoreProviderCredentials.mock.calls[0][0];
     expect(args.provider).toBe('provider:anthropic');
+  });
+});
+
+describe('ensureBuiltInCloudProviderConfigured', () => {
+  beforeEach(() => {
+    mockOpenhumanGetClientConfig.mockReset();
+    mockOpenhumanUpdateModelSettings.mockReset();
+    mockIsTauri.mockReturnValue(true);
+  });
+
+  it('creates an OpenAI provider row and chat default during onboarding', async () => {
+    mockOpenhumanGetClientConfig.mockResolvedValue(
+      makeClientConfigResult({
+        default_model: 'ollama:gemma3:1b-it-qat',
+        memory_provider: 'ollama:gemma3:1b-it-qat',
+        embeddings_provider: 'ollama:bge-m3',
+      })
+    );
+    mockOpenhumanUpdateModelSettings.mockResolvedValue({});
+
+    await ensureBuiltInCloudProviderConfigured('openai');
+
+    expect(mockOpenhumanUpdateModelSettings).toHaveBeenCalledOnce();
+    const patch = mockOpenhumanUpdateModelSettings.mock.calls[0][0];
+    expect(patch.cloud_providers).toEqual([
+      expect.objectContaining({
+        slug: 'openai',
+        endpoint: 'https://api.openai.com/v1',
+        auth_style: 'bearer',
+      }),
+    ]);
+    expect(patch.default_model).toBe('openai:gpt-5.4');
+    expect(patch.memory_provider).toBe('');
+    expect(patch.embeddings_provider).toBe('');
+  });
+
+  it('does not overwrite an existing external default model', async () => {
+    mockOpenhumanGetClientConfig.mockResolvedValue(
+      makeClientConfigResult({
+        default_model: 'anthropic:claude-sonnet-4-6',
+        cloud_providers: [
+          {
+            id: 'p_openai_existing',
+            slug: 'openai',
+            label: 'OpenAI',
+            endpoint: 'https://api.openai.com/v1',
+            auth_style: 'bearer',
+          },
+        ],
+      })
+    );
+    mockOpenhumanUpdateModelSettings.mockResolvedValue({});
+
+    await ensureBuiltInCloudProviderConfigured('openai');
+
+    expect(mockOpenhumanUpdateModelSettings).not.toHaveBeenCalled();
+  });
+
+  it('no-ops outside Tauri', async () => {
+    mockIsTauri.mockReturnValue(false);
+
+    await ensureBuiltInCloudProviderConfigured('openai');
+
+    expect(mockOpenhumanGetClientConfig).not.toHaveBeenCalled();
+    expect(mockOpenhumanUpdateModelSettings).not.toHaveBeenCalled();
   });
 });
 

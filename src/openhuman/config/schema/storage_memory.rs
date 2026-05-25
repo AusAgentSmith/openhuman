@@ -136,28 +136,18 @@ fn default_true() -> bool {
 }
 
 fn default_embedding_provider() -> String {
-    // Local-OAuth fork: the OpenHuman backend is gone, so the legacy
-    // `"cloud"` default (which built `OpenHumanCloudEmbedding` against
-    // the dead backend with the `embedding-v1` model) is no longer
-    // viable. Default to local Ollama — the user manages their own
-    // embedder via `ollama pull bge-m3` (or whichever model they
-    // configured under Settings → AI). The previous behaviour caused
-    // the legacy `embedding_provider = "cloud"` line to be re-injected
-    // into `config.toml` on every `Config::save()` round-trip even
-    // after the user had picked an Ollama model in the UI, because
-    // serde's `#[serde(default)]` filled blanks with the dead default
-    // and the next save persisted the zombie value.
-    "ollama".into()
+    // The hosted OpenHuman embedding backend is gone, but defaulting to
+    // Ollama is also wrong for users who chose external AI and never opted
+    // into a local runtime. Use the explicit no-op provider by default so
+    // chat remains available without a local daemon; users who want semantic
+    // embeddings can opt into Ollama or another provider in Settings -> AI.
+    "none".into()
 }
 fn default_embedding_model() -> String {
-    // Local-OAuth fork: matches `model_ids::DEFAULT_OLLAMA_EMBED_MODEL`
-    // (`bge-m3` — 1024-dim, compatible with the memory tree's on-disk
-    // format). Replaces the dead OpenHuman backend's `embedding-v1`.
-    "bge-m3".into()
+    "none".into()
 }
 fn default_embedding_dims() -> usize {
-    // Keep this in sync with `embeddings::cloud::DEFAULT_CLOUD_EMBEDDING_DIMENSIONS`.
-    1024
+    0
 }
 fn default_min_relevance_score() -> f64 {
     0.4

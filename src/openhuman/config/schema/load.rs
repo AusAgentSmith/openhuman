@@ -1,11 +1,11 @@
 //! Config load/save and environment variable overrides.
 
 use super::{
-    proxy::{
-        normalize_no_proxy_list, normalize_proxy_url_option, normalize_service_list,
-        parse_proxy_enabled, parse_proxy_scope, set_runtime_proxy_config, ProxyScope,
-    },
     Config, UpdateRestartStrategy,
+    proxy::{
+        ProxyScope, normalize_no_proxy_list, normalize_proxy_url_option, normalize_service_list,
+        parse_proxy_enabled, parse_proxy_scope, set_runtime_proxy_config,
+    },
 };
 use anyhow::{Context, Result};
 use directories::UserDirs;
@@ -391,11 +391,7 @@ pub fn read_active_user_id(default_openhuman_dir: &Path) -> Option<String> {
     let contents = std::fs::read_to_string(&path).ok()?;
     let state: ActiveUserState = toml::from_str(&contents).ok()?;
     let id = state.user_id.trim().to_string();
-    if id.is_empty() {
-        None
-    } else {
-        Some(id)
-    }
+    if id.is_empty() { None } else { Some(id) }
 }
 
 /// Writes the active user id to `{default_openhuman_dir}/active_user.toml`.
@@ -694,13 +690,89 @@ fn migrate_cloud_provider_slugs(config: &mut Config) {
 /// default would cause `memory::factory::create_embedding_provider` to hard-error
 /// at chat-turn time. Migrate to `"none"` (NoopEmbedding) so the chat path stays
 /// alive — the user can enable a real embedder via Settings → AI → Embeddings.
+fn disable_memory_embeddings(config: &mut Config, reason: &str) {
+    tracing::info!("{reason}");
+    config.memory.embedding_provider = "none".to_string();
+    config.memory.embedding_model = "none".to_string();
+    config.memory.embedding_dimensions = 0;
+}
+
 fn migrate_legacy_cloud_embedding_provider(config: &mut Config) {
     if config.memory.embedding_provider == "cloud" {
-        tracing::info!(
-            "[config][migrate] rewriting memory.embedding_provider 'cloud' → 'none' \
-             (OpenHuman backend removed in closedhuman fork)"
+        disable_memory_embeddings(
+            config,
+            "[config][migrate] rewriting memory.embedding_provider 'cloud' -> 'none' \
+             (OpenHuman backend removed in closedhuman fork)",
         );
-        config.memory.embedding_provider = "none".to_string();
+    }
+}
+
+/// Rewrite the prior closedhuman default (`ollama` + `bge-m3`) to `none`
+/// unless the user explicitly opted into the local embeddings workload.
+///
+/// Older builds filled missing memory embedding settings with Ollama. That
+/// made external-provider setups fail at chat-turn time when no local Ollama
+/// daemon was running, even though the user never chose local AI.
+fn migrate_default_ollama_embedding_provider(config: &mut Config) {
+    if config.memory.embedding_provider == "ollama"
+        && config.memory.embedding_model == "bge-m3"
+        && config.memory.embedding_dimensions == 1024
+        && !config.local_ai.opt_in_confirmed
+        && !config.local_ai.usage.embeddings
+        && !config.workload_uses_local("embeddings")
+    {
+        disable_memory_embeddings(
+            config,
+            "[config][migrate] rewriting implicit memory.embedding_provider 'ollama' -> 'none' \
+             because local AI embeddings were not explicitly enabled",
+        );
+    }
+}
+
+/// Clear the embeddings workload route accidentally seeded by migration 1 -> 2
+/// for users who never opted into local AI embeddings.
+fn migrate_unconfirmed_default_local_embeddings_provider(config: &mut Config) {
+    if config.local_ai.opt_in_confirmed || config.local_ai.usage.embeddings {
+        return;
+    }
+
+    let model = config.local_ai.embedding_model_id.trim();
+    if model.is_empty() {
+        return;
+    }
+
+    let expected = format!("ollama:{model}");
+    if config
+        .embeddings_provider
+        .as_deref()
+        .is_some_and(|value| value.trim() == expected)
+    {
+        tracing::info!(
+            "[config][migrate] clearing implicit embeddings_provider '{}' because local AI embeddings were not explicitly enabled",
+            expected
+        );
+        config.embeddings_provider = None;
+    }
+}
+
+/// Clear the memory workload route accidentally seeded by migration 1 -> 2
+/// for users who never opted into local AI.
+fn migrate_unconfirmed_default_local_memory_provider(config: &mut Config) {
+    if config.local_ai.opt_in_confirmed {
+        return;
+    }
+
+    let expected = format!("ollama:{}", config.local_ai.chat_model_id.trim());
+    if config
+        .memory_provider
+        .as_deref()
+        .is_some_and(|value| value.trim() == expected)
+    {
+        tracing::info!(
+            "[config][migrate] clearing implicit memory_provider '{}' because local AI was not explicitly enabled",
+            expected
+        );
+        config.memory_provider = None;
     }
 }
 
@@ -824,6 +896,9 @@ impl Config {
             migrate_legacy_autocomplete_disabled_apps(&mut config);
             migrate_cloud_provider_slugs(&mut config);
             migrate_legacy_cloud_embedding_provider(&mut config);
+            migrate_unconfirmed_default_local_embeddings_provider(&mut config);
+            migrate_default_ollama_embedding_provider(&mut config);
+            migrate_unconfirmed_default_local_memory_provider(&mut config);
             config.apply_env_overrides_from(env);
 
             if config_was_corrupted {

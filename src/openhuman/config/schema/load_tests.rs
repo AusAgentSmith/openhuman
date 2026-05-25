@@ -1321,6 +1321,77 @@ default_temperature = 0.7
     );
 }
 
+#[tokio::test]
+async fn load_or_init_clears_implicit_ollama_memory_routes_without_local_opt_in() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_file(
+        &root.join("config.toml"),
+        r#"schema_version = 2
+default_model = "openai:gpt-5.4-mini"
+primary_cloud = "p_openai"
+memory_provider = "ollama:gemma3:1b-it-qat"
+embeddings_provider = "ollama:bge-m3"
+
+[[cloud_providers]]
+id = "p_openai"
+slug = "openai"
+label = "OpenAI"
+endpoint = "https://api.openai.com/v1"
+auth_style = "bearer"
+
+[memory]
+embedding_provider = "ollama"
+embedding_model = "bge-m3"
+embedding_dimensions = 1024
+"#,
+    )
+    .await;
+
+    let config = load_or_init_for_workspace(root).await;
+
+    assert_eq!(config.memory_provider, None);
+    assert_eq!(config.embeddings_provider, None);
+    assert_eq!(config.memory.embedding_provider, "none");
+    assert_eq!(config.memory.embedding_model, "none");
+    assert_eq!(config.memory.embedding_dimensions, 0);
+}
+
+#[tokio::test]
+async fn load_or_init_preserves_explicit_local_memory_routes_after_local_opt_in() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+
+    write_file(
+        &root.join("config.toml"),
+        r#"schema_version = 2
+memory_provider = "ollama:gemma3:1b-it-qat"
+embeddings_provider = "ollama:bge-m3"
+
+[local_ai]
+opt_in_confirmed = true
+
+[memory]
+embedding_provider = "ollama"
+embedding_model = "bge-m3"
+embedding_dimensions = 1024
+"#,
+    )
+    .await;
+
+    let config = load_or_init_for_workspace(root).await;
+
+    assert_eq!(
+        config.memory_provider.as_deref(),
+        Some("ollama:gemma3:1b-it-qat")
+    );
+    assert_eq!(config.embeddings_provider.as_deref(), Some("ollama:bge-m3"));
+    assert_eq!(config.memory.embedding_provider, "ollama");
+    assert_eq!(config.memory.embedding_model, "bge-m3");
+    assert_eq!(config.memory.embedding_dimensions, 1024);
+}
+
 #[test]
 fn redact_url_strips_basic_auth_and_query() {
     let out = redact_url_for_log(

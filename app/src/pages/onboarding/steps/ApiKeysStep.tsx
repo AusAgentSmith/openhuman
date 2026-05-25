@@ -1,7 +1,10 @@
 import { useState } from 'react';
 
 import { useT } from '../../../lib/i18n/I18nContext';
-import { setCloudProviderKey } from '../../../services/api/aiSettingsApi';
+import {
+  ensureBuiltInCloudProviderConfigured,
+  setCloudProviderKey,
+} from '../../../services/api/aiSettingsApi';
 import OnboardingNextButton from '../components/OnboardingNextButton';
 
 interface ApiKeysStepProps {
@@ -29,9 +32,11 @@ const ApiKeysStep = ({ onNext, onSkip }: ApiKeysStepProps) => {
     try {
       if (trimmedOpenai) {
         await setCloudProviderKey('openai', trimmedOpenai);
+        await ensureBuiltInCloudProviderConfigured('openai');
       }
       if (trimmedAnthropic) {
         await setCloudProviderKey('anthropic', trimmedAnthropic);
+        await ensureBuiltInCloudProviderConfigured('anthropic');
       }
       onNext();
     } catch (err) {
