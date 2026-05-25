@@ -93,9 +93,17 @@ steps:
         apt-get install -y nodejs >/dev/null
         npm install -g pnpm >/dev/null
 
-        # ── submodules (pinned commits from git index; both are public GitHub) ─
-        git submodule update --init --depth=1 app/src-tauri/vendor/tauri-cef
-        git submodule update --init --depth=1 app/src-tauri/vendor/tauri-plugin-notification
+        # ── submodules ────────────────────────────────────────────────────────
+        # git submodule update --init --depth=1 can't resolve pinned SHAs that
+        # aren't at a GitHub branch tip. Clone branch HEAD directly instead.
+        rm -rf app/src-tauri/vendor/tauri-cef
+        git clone --depth=1 --branch feat/cef \
+          https://github.com/tinyhumansai/tauri-cef.git \
+          app/src-tauri/vendor/tauri-cef
+        rm -rf app/src-tauri/vendor/tauri-plugin-notification
+        git clone --depth=1 \
+          https://github.com/tinyhumansai/tauri-plugin-notification.git \
+          app/src-tauri/vendor/tauri-plugin-notification
 
         # ── pnpm deps ────────────────────────────────────────────────────────
         cd app
