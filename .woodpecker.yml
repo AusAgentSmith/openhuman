@@ -70,7 +70,9 @@ steps:
       GIT_AUTH_TOKEN:
         from_secret: git_auth_token
     commands:
+      # The | block runs under /bin/sh (dash) which lacks pipefail; wrap with bash.
       - |
+        bash << 'SCRIPT'
         set -euo pipefail
 
         # ── system deps (GTK3 + WebKit + CEF X11/DRM + build tools) ──────────
@@ -85,7 +87,9 @@ steps:
           git curl ca-certificates >/dev/null
 
         # ── Node.js 22 + pnpm ────────────────────────────────────────────────
-        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+        # Download to file first to avoid curl|bash pipe swallowing curl errors.
+        curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/nodesource.sh
+        bash /tmp/nodesource.sh >/dev/null
         apt-get install -y nodejs >/dev/null
         npm install -g pnpm >/dev/null
 
@@ -132,6 +136,7 @@ steps:
           --upload "$DEB_FILE"
 
         echo "[build-deb] uploaded $DEB_FILENAME at openhuman-deb/$SHORT_SHA"
+        SCRIPT
     when:
       - event: [push, manual]
 
