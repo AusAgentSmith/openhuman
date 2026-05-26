@@ -316,20 +316,48 @@ async fn connection_subscriber_skips_when_no_provider_registered() {
 
 #[tokio::test]
 async fn config_changed_subscriber_invalidates_cache() {
+    // When api_key_set=true the subscriber now also spawns a
+    // run_one_tick() task. Isolate the workspace so that task can't
+    // contend with other TEST_ENV_LOCK holders, and drain it before
+    // releasing the lock (same pattern as connection-created tests).
+    use crate::openhuman::config::{Config, TEST_ENV_LOCK};
+    let _env_guard = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    unsafe {
+        std::env::set_var("OPENHUMAN_WORKSPACE", tmp.path());
+    }
+    let mut config = Config::default();
+    config.config_path = tmp.path().join("config.toml");
+    config.workspace_dir = tmp.path().join("workspace");
+    config.save().await.expect("save fake config to disk");
+    // Keep the dir alive for the detached run_one_tick() task.
+    std::mem::forget(tmp);
+
     let sub = ComposioConfigChangedSubscriber::new();
-    // Should not panic and should log-invalidate without a config in
-    // hand — the cache invalidate path is pure-memory and never
-    // touches the network.
     sub.handle(&DomainEvent::ComposioConfigChanged {
         mode: "direct".into(),
         api_key_set: true,
     })
     .await;
+    // api_key_set=false — no spawn, just cache-invalidate.
     sub.handle(&DomainEvent::ComposioConfigChanged {
         mode: "backend".into(),
         api_key_set: false,
     })
     .await;
+
+    // Drain the run_one_tick() spawn before releasing TEST_ENV_LOCK.
+    // With no Composio key in the isolated workspace the tick returns
+    // early (Ok(())) well within this window.
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+
+    unsafe {
+        std::env::remove_var("OPENHUMAN_WORKSPACE");
+    }
 }
 
 #[tokio::test]

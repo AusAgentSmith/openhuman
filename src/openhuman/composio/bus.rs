@@ -676,6 +676,21 @@ impl EventHandler for ComposioConfigChangedSubscriber {
             "[composio-cache] config changed — invalidating integrations cache"
         );
         super::ops::invalidate_connected_integrations_cache();
+
+        // When a new API key is stored, kick off an immediate sync tick
+        // so connections are synced right away instead of waiting up to
+        // TICK_SECONDS (20 min) for the periodic scheduler.
+        if *api_key_set {
+            tracing::debug!("[composio-cache] api_key_set=true — spawning immediate sync tick");
+            tokio::spawn(async {
+                if let Err(e) = super::periodic::run_one_tick().await {
+                    tracing::warn!(
+                        error = %e,
+                        "[composio-cache] immediate sync tick after key change failed"
+                    );
+                }
+            });
+        }
     }
 }
 
