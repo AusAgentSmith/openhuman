@@ -23,7 +23,7 @@
  *   1. the connection is currently ACTIVE/CONNECTED, AND
  *   2. the toolkit is in the syncable allow-list (today: gmail).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { listConnections, syncConnection } from '../../lib/composio/composioApi';
 import type { ComposioConnection } from '../../lib/composio/types';
@@ -149,6 +149,9 @@ export function MemorySources({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  // Pause the poll loop when the Composio API key is invalid so we don't
+  // hammer every 5 s on a 401 that won't self-heal.
+  const pollPausedRef = useRef(false);
 
   const loadAll = useCallback(async () => {
     try {
@@ -159,6 +162,10 @@ export function MemorySources({
             // Composio may be unreachable in dev; degrade to anonymous
             // toolkit rows from sync-status alone rather than masking
             // the rest of the UI behind an error.
+            const message = err instanceof Error ? err.message : String(err);
+            if (/invalid api key|401/i.test(message)) {
+              pollPausedRef.current = true;
+            }
             console.warn('[ui-flow][memory-sources] list_connections failed', err);
             return [] as ComposioConnection[];
           }),
@@ -183,7 +190,7 @@ export function MemorySources({
   useEffect(() => {
     if (!pollIntervalMs) return undefined;
     const id = setInterval(() => {
-      void loadAll();
+      if (!pollPausedRef.current) void loadAll();
     }, pollIntervalMs);
     return () => clearInterval(id);
   }, [pollIntervalMs, loadAll]);

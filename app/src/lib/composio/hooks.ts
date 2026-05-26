@@ -38,6 +38,11 @@ export function useComposioIntegrations(pollIntervalMs = 5_000): UseComposioInte
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  // When the Composio API key is invalid the poll would hammer the server
+  // every 5 s indefinitely. Pause until the user updates their key (signalled
+  // by the composio:config-changed window event, which already triggers a
+  // manual refresh and resets this flag).
+  const pollPausedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -88,16 +93,21 @@ export function useComposioIntegrations(pollIntervalMs = 5_000): UseComposioInte
     void refresh();
     if (pollIntervalMs <= 0) return;
     const id = window.setInterval(() => {
+      if (pollPausedRef.current) return;
       void listConnections()
         .then(resp => {
           if (!mountedRef.current) return;
           setConnections(resp.connections ?? []);
         })
         .catch(err => {
-          console.warn(
-            '[composio] polling connections failed:',
-            err instanceof Error ? err.message : String(err)
-          );
+          const message = err instanceof Error ? err.message : String(err);
+          // Stop polling on auth failures (invalid/expired Composio API key).
+          // The composio:config-changed event resets the flag when the user
+          // provides a new key, which also triggers a manual refresh.
+          if (/invalid api key|401/i.test(message)) {
+            pollPausedRef.current = true;
+          }
+          console.warn('[composio] polling connections failed:', message);
         });
     }, pollIntervalMs);
     return () => window.clearInterval(id);
@@ -115,6 +125,7 @@ export function useComposioIntegrations(pollIntervalMs = 5_000): UseComposioInte
   useEffect(() => {
     const onConfigChanged = () => {
       console.debug('[composio-cache] window:composio:config-changed → refresh()');
+      pollPausedRef.current = false;
       void refresh();
     };
     window.addEventListener('composio:config-changed', onConfigChanged);
