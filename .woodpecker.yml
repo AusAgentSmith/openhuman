@@ -3,6 +3,10 @@ when:
     branch: main
   - event: manual
 
+# Tauri release builds take ~60-90 min (vendored CEF tauri-cli + full crate
+# graph). Raise the pipeline ceiling well above the default 60 min.
+timeout_minutes: 180
+
 # Skip submodule init here; tauri-cef and tauri-plugin-notification are
 # initialised inside build-deb below (public GitHub repos, no auth needed).
 clone:
