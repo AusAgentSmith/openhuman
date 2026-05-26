@@ -1,6 +1,5 @@
 when:
   - event: push
-    branch: main
   - event: manual
 
 # Tauri release builds take ~60-90 min (vendored CEF tauri-cli + full crate
@@ -42,6 +41,7 @@ steps:
       platforms: linux/amd64
     when:
       - event: [push, manual]
+        branch: main
 
   - name: komodo-deploy
     image: alpine:3.23
@@ -59,6 +59,7 @@ steps:
       - STACK_NAME=prod-openhuman-core STACK_DIR=prod/openhuman-core IMAGE_NAME=repo.indexarr.net/indexarr/openhuman-core IMAGE_TAG=$CI_COMMIT_SHA bash /tmp/komodo-deploy.sh
     when:
       - event: [push, manual]
+        branch: main
 
   # Builds the Linux desktop .deb and uploads it to the Forgejo generic
   # package registry at:
@@ -137,18 +138,21 @@ steps:
         DEB_FILE=$(find app/src-tauri/target/release/bundle/deb -name "*.deb" | head -1)
         DEB_FILENAME=$(basename "$DEB_FILE")
         SHORT_SHA=$(echo $CI_COMMIT_SHA | cut -c1-7)
+        # Sanitise branch name for use as a registry path component.
+        SAFE_BRANCH=$(echo "$CI_COMMIT_BRANCH" | sed 's|[^a-zA-Z0-9._-]|-|g')
+        SLOT="$SAFE_BRANCH-$SHORT_SHA"
 
         # Forgejo generic packages are immutable; delete the slot first so a
         # re-run of the same SHA doesn't 409.
         forgejo-api DELETE \
-          "/api/packages/indexarr/generic/openhuman-deb/$SHORT_SHA/$DEB_FILENAME" \
+          "/api/packages/indexarr/generic/openhuman-deb/$SLOT/$DEB_FILENAME" \
           --allow 404 >/dev/null
 
         forgejo-api PUT \
-          "/api/packages/indexarr/generic/openhuman-deb/$SHORT_SHA/$DEB_FILENAME" \
+          "/api/packages/indexarr/generic/openhuman-deb/$SLOT/$DEB_FILENAME" \
           --upload "$DEB_FILE"
 
-        echo "[build-deb] uploaded $DEB_FILENAME at openhuman-deb/$SHORT_SHA"
+        echo "[build-deb] uploaded $DEB_FILENAME at openhuman-deb/$SLOT"
         SCRIPT
     when:
       - event: [push, manual]
